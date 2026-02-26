@@ -13,19 +13,32 @@ Public Class Form1
     Private sucursalNombre As String = ""
     Private sucursalDependeDe As String = ""
 
+
     'Carga
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        LabelEstadoServidor.Text = "Esperando puesto..."
-        LabelEstadoServidor.ForeColor = Color.Gray
 
+        LabelEstadoPuesto.Text = "Esperando Puesto"
+        LabelEstadoPuesto.ForeColor = Color.Gray
+        LabelEstadoServidor.Text = "Esperando Servidor..."
+        LabelEstadoServidor.ForeColor = Color.Gray
         LabelEstadoLegajo.Text = "Esperando legajo..."
         LabelEstadoLegajo.ForeColor = Color.Gray
-
         LabelEstadoCasilla.Text = "Esperando Casilla..."
-        LabelEstadoLegajo.ForeColor = Color.Gray
+        LabelEstadoCasilla.ForeColor = Color.Gray
+        TextBoxPuesto.MaxLength = 11
 
-        ' Al cargar el formulario llenamos el ComboBox con los códigos
-        ComboBoxSucursales.DataSource = DiccionarioSucursales.Keys.ToList()
+
+
+        ' cargar: SOLO códigos válidos (4 dígitos numéricos)
+        Dim clavesValidas = DiccionarioSucursales.Keys.Where(Function(k) k.Length = 4 AndAlso k.All(AddressOf Char.IsDigit)).
+        OrderBy(Function(k) k).
+        ToList()
+
+        ' Insertar 0000 como valor inicial
+        clavesValidas.Insert(0, "0000")
+
+        ComboBoxSucursales.DataSource = clavesValidas
+        ComboBoxSucursales.SelectedIndex = 0
 
         ' Inicializar el CheckBox desmarcado
         CheckBoxInformacion.Checked = False
@@ -45,6 +58,56 @@ Public Class Form1
         ProcesarSucursal()
     End Sub
 
+
+    ' Funcion combobox ingreso dato manual o seleccion
+    Private Sub ComboBoxSucursales_SelectedIndexChanged(sender As Object, e As EventArgs) Handles ComboBoxSucursales.SelectedIndexChanged
+        If _suspendEvents Then Exit Sub
+        If ComboBoxSucursales.SelectedItem Is Nothing Then Exit Sub
+
+        ' Tomamos el texto seleccionado
+        Dim codigoTexto As String = ComboBoxSucursales.SelectedItem.ToString().Trim()
+
+        ' Si es 0000, estado inicial y no procesar
+        If codigoTexto = "0000" Then
+            ResetLabelEstado(LabelEstadoServidor, "Esperando Servidor...")
+            ' Si querés, también podés limpiar Tipo/Nombre/DependeDe si los usás:
+            ' sucursalTipo = "" : sucursalNombre = "" : sucursalDependeDe = ""
+            ActualizarInfoGeneral()
+            Exit Sub
+        End If
+
+        ' Validar que sean solo números y exactamente 4 dígitos
+        Dim codigoNum As Integer
+        If Not Integer.TryParse(codigoTexto, codigoNum) OrElse codigoTexto.Length <> 4 Then
+            MessageBox.Show("Error: ingrese exactamente 4 números.", "Entrada inválida", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Exit Sub
+        End If
+
+        ' Asegurar 4 dígitos con ceros a la izquierda
+        Dim codigo As String = codigoNum.ToString().PadLeft(4, "0"c)
+
+        ' Si la sucursal existe en el diccionario, actualizamos los datos; si no, solo refrescamos la info general
+        If DiccionarioSucursales.ContainsKey(codigo) Then
+            Dim datos = DiccionarioSucursales(codigo)
+            ' Esto setea Tipo/Nombre/DependeDe en las variables persistentes dentro de ActualizarInfoGeneral
+            ActualizarInfoGeneral(datos)
+        Else
+            ActualizarInfoGeneral()
+        End If
+
+        ' Opcional: si querés disparar la detección de servidor inmediatamente al elegir la sucursal válida:
+        ProcesarServidor(codigo)
+    End Sub
+
+
+    'bloqueo tecla letras o caracter
+    Private Sub ComboBoxSucursales_KeyPress(sender As Object, e As KeyPressEventArgs) Handles ComboBoxSucursales.KeyPress
+        ' Permitir solo números y la tecla de retroceso
+        If Not Char.IsDigit(e.KeyChar) AndAlso Not Char.IsControl(e.KeyChar) Then
+            e.Handled = True
+            MessageBox.Show("Solo se permiten números.", "Entrada inválida", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        End If
+    End Sub
     ' Diccionario local fijo con los datos importados del Excel
     Private DiccionarioSucursales As New Dictionary(Of String, Tuple(Of String, String, String)) From {
      {"0007", Tuple.Create("SUC", "LAVALLE (CAP. FED.) - SDWAN", "7")},
@@ -832,7 +895,7 @@ Public Class Form1
 
 
 
-    'Event' ProcesarSucursal: detecta servidor y actualiza LabelEstadoRed
+    'Event ProcesarSucursal: detecta servidor y actualiza LabelEstadoRed
     Private Sub ProcesarSucursal()
         Dim textoIngresado As String = ComboBoxSucursales.Text.Trim()
         If String.IsNullOrEmpty(textoIngresado) Then Exit Sub
@@ -847,7 +910,7 @@ Public Class Form1
         End If
 
         ' Caso: el usuario está escribiendo manualmente
-        ' Solo procesar si escribió exactamente 4 dígitos
+        ' Solo procesar si escribie exactamente 4 dígitos
         If textoIngresado.Length = 4 AndAlso Integer.TryParse(textoIngresado, Nothing) Then
             Dim sucursalNumero As Integer = Integer.Parse(textoIngresado)
             Dim sucursalFormateada As String = sucursalNumero.ToString().PadLeft(4, "0"c)
@@ -887,8 +950,9 @@ Public Class Form1
         End If
     End Sub
 
-    ' Método auxiliar para no repetir lógica
+    ' Método auxiliar  de servidor
     Private Sub ProcesarServidor(sucursalFormateada As String)
+        If sucursalFormateada = "0000" Then Exit Sub
         Dim servidorActivo As String = DetectarSMF(sucursalFormateada)
 
         If servidorActivo <> "" Then
@@ -908,15 +972,15 @@ Public Class Form1
         End If
 
         ActualizarInfoGeneral()
-        RegistrarAccionHistorial("Servidor", TextBoxInfoGeneral.Text)
+
     End Sub
 
 
 
     Private Function DetectarSMF(sucursal As String) As String
+
         Dim smf01 = "SMF01SC" & sucursal
         Dim smf02 = "SMF02SC" & sucursal
-
         If HacerPing(smf01) Then
             Return "SMF01"
         End If
@@ -939,79 +1003,449 @@ Public Class Form1
         End If
     End Sub
 
+
+
+
+
+
+
+    ' Evento cuando cambia el texto del TextBoxLegajo
+    Private Sub TextBoxLegajo_TextChanged(sender As Object, e As EventArgs) Handles TextBoxLegajo.TextChanged
+        If _suspendEvents Then Exit Sub
+        Dim puestoActual As String = TextBoxPuesto.Text.Trim()
+
+        ' Normalizar a MAYÚSCULAS y recortar a 6 (soporta pegado)
+        Dim pos As Integer = TextBoxLegajo.SelectionStart
+        If TextBoxLegajo.TextLength > 0 Then
+            TextBoxLegajo.Text = TextBoxLegajo.Text.ToUpper()
+            If TextBoxLegajo.TextLength > 6 Then
+                TextBoxLegajo.Text = TextBoxLegajo.Text.Substring(0, 6)
+            End If
+            TextBoxLegajo.SelectionStart = Math.Min(pos, TextBoxLegajo.TextLength)
+        End If
+
+        Dim legajoActual As String = TextBoxLegajo.Text.Trim()
+
+        ' Validar formato: 1 letra (N/T/E) + 5 dígitos
+        If Regex.IsMatch(legajoActual, "^[NTE]\d{5}$", RegexOptions.IgnoreCase) Then
+            ' Si el puesto no está informado, evitamos intentar conectar
+            If String.IsNullOrWhiteSpace(puestoActual) Then
+                LabelEstadoLegajo.Text = "Esperando puesto válido..."
+                LabelEstadoLegajo.ForeColor = Color.Gray
+                LabelEstadoLegajo.Tag = Nothing
+                LabelEstadoLegajo.Cursor = Cursors.Default
+                LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Regular)
+                ToolTip1.SetToolTip(LabelEstadoLegajo, "")
+                ActualizarInfoGeneral()
+                Exit Sub
+            End If
+
+            ' Validamos que el puesto responda al ping
+            If HacerPing(puestoActual) Then
+                Try
+                    Dim rutaBase As String = "\\" & puestoActual & "\c$\Users\"
+                    Dim legajoUpper As String = legajoActual.ToUpper()
+
+                    ' Buscar variantes con sufijo .SUC#
+                    Dim carpetas As String() = Directory.GetDirectories(rutaBase, legajoUpper & ".SUC*")
+
+                    If carpetas.Length > 0 Then
+                        ' Elegir la variante con mayor número
+                        Dim carpetaElegida As String = carpetas.OrderByDescending(
+                        Function(c)
+                            Dim nombre = Path.GetFileName(c)
+                            Dim idx = nombre.IndexOf(".SUC", StringComparison.OrdinalIgnoreCase)
+                            If idx >= 0 AndAlso nombre.Length > idx + 4 Then
+                                Dim sufijo = nombre.Substring(idx + 4)
+                                Dim num As Integer
+                                If Integer.TryParse(sufijo, num) Then
+                                    Return num
+                                End If
+                            End If
+                            Return -1
+                        End Function
+                    ).First()
+
+                        LabelEstadoLegajo.Text = "Legajo encontrado (variante .SUC)"
+                        LabelEstadoLegajo.ForeColor = Color.Green
+                        LabelEstadoLegajo.Tag = carpetaElegida
+                        LabelEstadoLegajo.Cursor = Cursors.Hand
+                        LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Underline)
+                        ToolTip1.SetToolTip(LabelEstadoLegajo, carpetaElegida)
+
+                    Else
+                        ' Buscar carpeta directa sin .SUC
+                        Dim carpetaDirecta As String = Path.Combine(rutaBase, legajoUpper)
+                        If Directory.Exists(carpetaDirecta) Then
+                            LabelEstadoLegajo.Text = "Legajo encontrado"
+                            LabelEstadoLegajo.ForeColor = Color.Green
+                            LabelEstadoLegajo.Tag = carpetaDirecta
+                            LabelEstadoLegajo.Cursor = Cursors.Hand
+                            LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Underline)
+                            ToolTip1.SetToolTip(LabelEstadoLegajo, carpetaDirecta)
+                        Else
+                            LabelEstadoLegajo.Text = "Legajo no encontrado"
+                            LabelEstadoLegajo.ForeColor = Color.Orange
+                            LabelEstadoLegajo.Tag = Nothing
+                            LabelEstadoLegajo.Cursor = Cursors.Default
+                            LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Regular)
+                            ToolTip1.SetToolTip(LabelEstadoLegajo, "")
+                        End If
+                    End If
+
+                Catch ex As Exception
+                    LabelEstadoLegajo.Text = "Error al validar legajo"
+                    LabelEstadoLegajo.ForeColor = Color.Red
+                    LabelEstadoLegajo.Tag = Nothing
+                    LabelEstadoLegajo.Cursor = Cursors.Default
+                    LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Regular)
+                    ToolTip1.SetToolTip(LabelEstadoLegajo, "")
+                End Try
+            Else
+                LabelEstadoLegajo.Text = "Puesto fuera de red"
+                LabelEstadoLegajo.ForeColor = Color.Red
+                LabelEstadoLegajo.Tag = Nothing
+                LabelEstadoLegajo.Cursor = Cursors.Default
+                LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Regular)
+                ToolTip1.SetToolTip(LabelEstadoLegajo, "")
+            End If
+        Else
+            LabelEstadoLegajo.Text = "Esperando legajo válido..."
+            LabelEstadoLegajo.ForeColor = Color.Gray
+            LabelEstadoLegajo.Tag = Nothing
+            LabelEstadoLegajo.Cursor = Cursors.Default
+            LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Regular)
+            ToolTip1.SetToolTip(LabelEstadoLegajo, "")
+        End If
+
+        ActualizarInfoGeneral()
+    End Sub
+
+    ' Bloquear caracteres inválidos en Legajo
+    ' Legajo: 1 letra (N/T/E) + 5 números
+    Private Sub TextBoxLegajo_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBoxLegajo.KeyPress
+
+        ' Permitir teclas de control (Backspace, Delete, etc.)
+        If Char.IsControl(e.KeyChar) Then Exit Sub
+
+        Dim tb = DirectCast(sender, TextBox)
+
+        ' Primer carácter    N, T o E
+        If tb.SelectionStart = 0 Then
+            Dim ch As Char = Char.ToUpper(e.KeyChar)
+
+            If ch <> "N"c AndAlso ch <> "T"c AndAlso ch <> "E"c Then
+                e.Handled = True
+            End If
+            Exit Sub
+        End If
+
+        ' Del carácter 2 al 6 → SÓLO números
+        If tb.SelectionStart >= 1 AndAlso tb.SelectionStart <= 5 Then
+            If Not Char.IsDigit(e.KeyChar) Then
+                e.Handled = True
+            End If
+            Exit Sub
+        End If
+
+        ' Bloquear si intenta escribir más de 6 caracteres (1 letra + 5 números)
+        If tb.TextLength >= 6 AndAlso tb.SelectionLength = 0 Then
+            e.Handled = True
+        End If
+
+    End Sub
+
+    'Evento al presionar legajo
+    Private Sub LabelEstadoLegajo_Click(sender As Object, e As EventArgs) Handles LabelEstadoLegajo.Click
+        If LabelEstadoLegajo.ForeColor = Color.Green AndAlso LabelEstadoLegajo.Tag IsNot Nothing Then
+            Try
+                Process.Start("explorer.exe", LabelEstadoLegajo.Tag.ToString())
+            Catch ex As Exception
+                MessageBox.Show("No se pudo abrir puesto: " & ex.Message)
+            End Try
+        End If
+    End Sub
+
+
+    ' Evento cuando cambia el texto del TextBoxPuesto
+    Private Sub TextBoxPuesto_TextChanged(sender As Object, e As EventArgs) Handles TextBoxPuesto.TextChanged
+        If _suspendEvents Then Exit Sub
+        Dim puestoActual As String = TextBoxPuesto.Text.Trim()
+
+        ' Normalizar  mayúsculas en pantalla
+        Dim selPos As Integer = TextBoxPuesto.SelectionStart
+        TextBoxPuesto.Text = TextBoxPuesto.Text.ToUpper()
+        TextBoxPuesto.SelectionStart = selPos
+
+        ' Validar LONGITUD 
+        If puestoActual.Length <> 11 Then
+            LabelEstadoPuesto.Text = "Esperando puesto válido..."
+            LabelEstadoPuesto.ForeColor = Color.Gray
+            LabelEstadoPuesto.Tag = Nothing
+            LabelEstadoPuesto.Cursor = Cursors.Default
+            LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Regular)
+            ToolTip1.SetToolTip(LabelEstadoPuesto, "")
+            ActualizarInfoGeneral()
+            Exit Sub
+        End If
+
+        ' Validar formato EXACTO:
+        ' Letra válida + 4 números + SC + 4 números
+        ' Letras válidas: A, B, C, L, M, X, O, H, G
+        Dim regexFormato As String = "^[ABCLMXOHG]\d{4}SC\d{4}$"
+
+        If Not Regex.IsMatch(puestoActual.ToUpper(), regexFormato) Then
+            LabelEstadoPuesto.Text = "Formato de puesto inválido"
+            LabelEstadoPuesto.ForeColor = Color.Orange
+            LabelEstadoPuesto.Tag = Nothing
+            LabelEstadoPuesto.Cursor = Cursors.Default
+            LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Regular)
+            ToolTip1.SetToolTip(LabelEstadoPuesto, "")
+            ActualizarInfoGeneral()
+            Exit Sub
+        End If
+
+        ' formato es válido → hacemos ping
+        If HacerPing(puestoActual) Then
+            Dim rutaServidor As String = "\\" & puestoActual & "\c$"
+
+            ' Mostrar SIEMPRE el puesto en mayúsculas
+            LabelEstadoPuesto.Text = puestoActual.ToUpper()
+            LabelEstadoPuesto.ForeColor = Color.Green
+            LabelEstadoPuesto.Tag = rutaServidor
+            LabelEstadoPuesto.Cursor = Cursors.Hand
+            LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Underline)
+            ToolTip1.SetToolTip(LabelEstadoPuesto, rutaServidor)
+        Else
+            LabelEstadoPuesto.Text = "Puesto fuera de red"
+            LabelEstadoPuesto.ForeColor = Color.Red
+            LabelEstadoPuesto.Tag = Nothing
+            LabelEstadoPuesto.Cursor = Cursors.Default
+            LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Regular)
+            ToolTip1.SetToolTip(LabelEstadoPuesto, "")
+        End If
+
+        ' Actualizar Info consolidada
+        ActualizarInfoGeneral()
+    End Sub
+
+    ' Bloquear caracteres inválidos en Puesto (solo letras/números, sin símbolos)
+    Private Sub TextBoxPuesto_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBoxPuesto.KeyPress
+        If Char.IsControl(e.KeyChar) Then Exit Sub
+
+        ' Solo letras y números
+        If Not Char.IsLetterOrDigit(e.KeyChar) Then
+            e.Handled = True
+            Exit Sub
+        End If
+        ' Limitar a 11 caracteres (permitiendo reemplazo por selección)
+        Dim tb = DirectCast(sender, TextBox)
+        Dim seleccion = tb.SelectionLength
+        Dim longitudEfectiva As Integer = tb.TextLength - seleccion
+
+        If longitudEfectiva >= 11 Then
+            e.Handled = True
+        End If
+    End Sub
+
+    ' Evento click del LabelEstadoPuesto
+    Private Sub LabelEstadoPuesto_Click(sender As Object, e As EventArgs) Handles LabelEstadoPuesto.Click
+        If LabelEstadoPuesto.ForeColor = Color.Green AndAlso LabelEstadoPuesto.Tag IsNot Nothing Then
+            Try
+                Process.Start("explorer.exe", LabelEstadoPuesto.Tag.ToString())
+            Catch ex As Exception
+                MessageBox.Show("No se pudo abrir la unidad de red: " & ex.Message)
+            End Try
+        End If
+    End Sub
+
     'Busqueda Informacion de Puesto
     Private Function ObtenerInfoHardware(puesto As String) As Dictionary(Of String, Tuple(Of String, Integer))
         Dim datos As New Dictionary(Of String, Tuple(Of String, Integer))
+
         Try
+            ' --- Puesto (mostrar tal cual pero en mayúsculas) ---
+            datos("Puesto") = Tuple.Create(puesto.ToUpperInvariant(), -1)
+
+            ' --- Última masterización: \\<puesto>\c$\Program Files[\(x86\)]\Sequencer\<puesto>.dat ---
+            Try
+                Dim ruta1 As String = "\\" & puesto & "\c$\Program Files\Sequencer\" & puesto & ".dat"
+                Dim ruta2 As String = "\\" & puesto & "\c$\Program Files (x86)\Sequencer\" & puesto & ".dat"
+
+                Dim rutaEncontrada As String = Nothing
+                If File.Exists(ruta1) Then
+                    rutaEncontrada = ruta1
+                ElseIf File.Exists(ruta2) Then
+                    rutaEncontrada = ruta2
+                End If
+
+                If Not String.IsNullOrEmpty(rutaEncontrada) Then
+                    Dim fecha As DateTime = File.GetCreationTime(rutaEncontrada)
+                    datos("Última masterización") = Tuple.Create(fecha.ToString("dd/MM/yyyy"), 0) ' 0 = OK/verde
+                Else
+                    datos("Última masterización") = Tuple.Create("Puesto no realizó masterización.", 1) ' 1 = alerta/rojo
+                End If
+            Catch exIO As Exception
+                datos("Última masterización") = Tuple.Create("No se pudo leer masterización: " & exIO.Message, 1)
+            End Try
+
+            ' --- WMI al equipo remoto ---
             Dim scope As New ManagementScope("\\" & puesto & "\root\cimv2")
             scope.Connect()
+            ' --- Detectar tipo de equipo (Notebook vs CPU) y, si es notebook, mostrar modelo ---
+            Dim esNotebook As Boolean = False
+            Dim tipoEquipoTexto As String = "Desconocido"
 
-            ' SO y uptime
-            Dim searcherOS As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Caption, Version, LastBootUpTime FROM Win32_OperatingSystem"))
-            For Each obj As ManagementObject In searcherOS.Get()
-                datos("Sistema operativo") = Tuple.Create(If(obj("Caption"), "N/A").ToString(), -1)
-                datos("Versión") = Tuple.Create(If(obj("Version"), "N/A").ToString(), -1)
-                If obj("LastBootUpTime") IsNot Nothing Then
-                    Dim bootTime As DateTime = ManagementDateTimeConverter.ToDateTime(obj("LastBootUpTime").ToString())
-                    datos("Último reinicio") = Tuple.Create(bootTime.ToString(), -1)
-                    datos("Tiempo de actividad") = Tuple.Create((DateTime.Now - bootTime).ToString(), -1)
-                End If
-            Next
+            ' 1) Intento principal: Win32_SystemEnclosure.ChassisTypes
+            Try
+                Using searcherChassis As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT ChassisTypes FROM Win32_SystemEnclosure"))
+                    For Each obj As ManagementObject In searcherChassis.Get()
+                        Dim arr = TryCast(obj("ChassisTypes"), UShort())
+                        If arr IsNot Nothing AndAlso arr.Length > 0 Then
+                            ' Mapear a categorías
+                            For Each code As UShort In arr
+                                Select Case code
+                                    Case 8US, 9US, 10US, 14US, 30US ' Portable, Laptop, Notebook, Sub-Notebook, Tablet
+                                        esNotebook = True
+                                        Exit For
+                                    Case 3US, 4US, 5US, 6US, 7US, 15US, 16US, 35US ' Desktop variants, All-in-One
+                                        ' Si no es notebook, lo consideramos CPU/Escritorio
+                                        ' (No seteamos aquí porque podría haber múltiples códigos; preferimos marcar notebook si aparece)
+                                End Select
+                            Next
+                            Exit For
+                        End If
+                    Next
+                End Using
+            Catch
+                ' Si falla, pasamos al fallback de batería
+            End Try
+
+            ' 2) Fallback: si el chasis no dio pista, buscamos batería
+            If Not esNotebook Then
+                Try
+                    Using searcherBat As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT * FROM Win32_Battery"))
+                        For Each obj As ManagementObject In searcherBat.Get()
+                            ' Si hay batería presente, casi seguro es portátil
+                            esNotebook = True
+                            Exit For
+                        Next
+                    End Using
+                Catch
+                    ' Si tampoco se puede consultar, lo dejamos en desconocido
+                End Try
+            End If
+
+            If esNotebook Then
+                tipoEquipoTexto = "Notebook/Portátil"
+                datos("Tipo de equipo") = Tuple.Create(tipoEquipoTexto, 0) ' 0 = OK/verde
+
+                ' Como ya abajo llenás Marca/Modelo/Serial con Win32_ComputerSystemProduct,
+                ' podemos intentar pre-levantar el Modelo aquí para mostrarlo explícito si es notebook.
+                Try
+                    Using searcherProd As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Name FROM Win32_ComputerSystemProduct"))
+                        For Each obj As ManagementObject In searcherProd.Get()
+                            Dim modeloName As String = If(obj("Name"), "").ToString()
+                            If Not String.IsNullOrWhiteSpace(modeloName) Then
+                                datos("Modelo (notebook)") = Tuple.Create(modeloName, -1) ' neutro para ícono
+                                Exit For
+                            End If
+                        Next
+                    End Using
+                Catch
+                    ' Si falla, lo omitimos silenciosamente
+                End Try
+            Else
+                tipoEquipoTexto = "CPU/Escritorio"
+                datos("Tipo de equipo") = Tuple.Create(tipoEquipoTexto, -1) ' neutro
+            End If
+            ' SO, versión, uptime y RAM total/libre
+            Using searcherOS As New ManagementObjectSearcher(scope, New ObjectQuery(
+            "SELECT Caption, Version, LastBootUpTime, TotalVisibleMemorySize, FreePhysicalMemory FROM Win32_OperatingSystem"))
+                For Each obj As ManagementObject In searcherOS.Get()
+                    datos("Sistema operativo") = Tuple.Create(If(obj("Caption"), "N/A").ToString(), -1)
+                    datos("Versión") = Tuple.Create(If(obj("Version"), "N/A").ToString(), -1)
+
+                    If obj("LastBootUpTime") IsNot Nothing Then
+                        Dim bootTime As DateTime = ManagementDateTimeConverter.ToDateTime(obj("LastBootUpTime").ToString())
+                        datos("Último reinicio") = Tuple.Create(bootTime.ToString("yyyy-MM-dd HH:mm"), -1)
+                        datos("Tiempo de actividad") = Tuple.Create((DateTime.Now - bootTime).ToString(), -1)
+                    End If
+
+                    Dim totalRAMKB As Double = CDbl(If(obj("TotalVisibleMemorySize"), 0))
+                    Dim freeRAMKB As Double = CDbl(If(obj("FreePhysicalMemory"), 0))
+                    datos("Memoria RAM total") = Tuple.Create(Math.Round(totalRAMKB / (1024 * 1024), 2).ToString() & " GB", -1)
+                    datos("Memoria RAM libre") = Tuple.Create(Math.Round(freeRAMKB / (1024 * 1024), 2).ToString() & " GB", -1)
+                Next
+            End Using
 
             ' Usuario logueado
-            Dim searcherUser As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT UserName FROM Win32_ComputerSystem"))
-            For Each obj As ManagementObject In searcherUser.Get()
-                datos("Usuario logueado") = Tuple.Create(If(obj("UserName"), "N/A").ToString(), -1)
-            Next
+            Using searcherUser As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT UserName FROM Win32_ComputerSystem"))
+                For Each obj As ManagementObject In searcherUser.Get()
+                    datos("Usuario logueado") = Tuple.Create(If(obj("UserName"), "N/A").ToString(), -1)
+                Next
+            End Using
 
             ' Marca, modelo, serial
-            Dim searcherProduct As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Vendor, Name, IdentifyingNumber FROM Win32_ComputerSystemProduct"))
-            For Each obj As ManagementObject In searcherProduct.Get()
-                datos("Marca") = Tuple.Create(If(obj("Vendor"), "N/A").ToString(), -1)
-                datos("Modelo") = Tuple.Create(If(obj("Name"), "N/A").ToString(), -1)
-                datos("Serial") = Tuple.Create(If(obj("IdentifyingNumber"), "N/A").ToString(), -1)
-            Next
+            Using searcherProduct As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Vendor, Name, IdentifyingNumber FROM Win32_ComputerSystemProduct"))
+                For Each obj As ManagementObject In searcherProduct.Get()
+                    datos("Marca") = Tuple.Create(If(obj("Vendor"), "N/A").ToString(), -1)
+                    datos("Modelo") = Tuple.Create(If(obj("Name"), "N/A").ToString(), -1)
+                    datos("Serial") = Tuple.Create(If(obj("IdentifyingNumber"), "N/A").ToString(), -1)
+                Next
+            End Using
 
-            ' IP
-            Dim searcherIP As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT IPAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = True"))
-            For Each obj As ManagementObject In searcherIP.Get()
-                If obj("IPAddress") IsNot Nothing Then
-                    Dim ipAddresses As String() = CType(obj("IPAddress"), String())
-                    If ipAddresses.Length > 0 Then datos("Dirección IP") = Tuple.Create(ipAddresses(0), -1)
-                End If
-            Next
-
-            ' Memoria RAM total/libre
-            Dim searcherRAM As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT TotalVisibleMemorySize, FreePhysicalMemory FROM Win32_OperatingSystem"))
-            For Each obj As ManagementObject In searcherRAM.Get()
-                Dim totalRAM As Double = CDbl(obj("TotalVisibleMemorySize")) / 1024
-                Dim freeRAM As Double = CDbl(obj("FreePhysicalMemory")) / 1024
-                datos("Memoria RAM total") = Tuple.Create(Math.Round(totalRAM / 1024, 2).ToString() & " GB", -1)
-                datos("Memoria RAM libre") = Tuple.Create(Math.Round(freeRAM / 1024, 2).ToString() & " GB", -1)
-            Next
+            ' IP (preferir IPv4)
+            Using searcherIP As New ManagementObjectSearcher(scope, New ObjectQuery(
+            "SELECT IPAddress FROM Win32_NetworkAdapterConfiguration WHERE IPEnabled = True"))
+                For Each obj As ManagementObject In searcherIP.Get()
+                    Dim ipAddresses = TryCast(obj("IPAddress"), String())
+                    If ipAddresses IsNot Nothing AndAlso ipAddresses.Length > 0 Then
+                        Dim ipv4 As String = Nothing
+                        For Each ip In ipAddresses
+                            If ip Like "*.*.*.*" Then
+                                ipv4 = ip
+                                Exit For
+                            End If
+                        Next
+                        datos("Dirección IP") = Tuple.Create(If(String.IsNullOrEmpty(ipv4), ipAddresses(0), ipv4), -1)
+                        Exit For
+                    End If
+                Next
+            End Using
 
             ' Módulos de memoria física
-            Dim searcherMem As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Capacity, Manufacturer, PartNumber, SerialNumber FROM Win32_PhysicalMemory"))
-            Dim idx As Integer = 1
-            For Each obj As ManagementObject In searcherMem.Get()
-                Dim capGB As Double = CDbl(obj("Capacity")) / (1024 ^ 3)
-                datos("Módulo RAM " & idx) = Tuple.Create(capGB.ToString("0.00") & " GB - " &
-                                                             If(obj("Manufacturer"), "N/A").ToString() & " - " &
-                                                             If(obj("PartNumber"), "N/A").ToString() & " - SN:" & If(obj("SerialNumber"), "N/A").ToString(), -1)
-                idx += 1
-            Next
+            Using searcherMem As New ManagementObjectSearcher(scope, New ObjectQuery(
+            "SELECT Capacity, Manufacturer, PartNumber, SerialNumber FROM Win32_PhysicalMemory"))
+                Dim idx As Integer = 1
+                For Each obj As ManagementObject In searcherMem.Get()
+                    Dim capBytes As Double = CDbl(If(obj("Capacity"), 0))
+                    Dim capGB As Double = capBytes / (1024 ^ 3)
+                    datos("Módulo RAM " & idx) = Tuple.Create(
+                    capGB.ToString("0.00") & " GB - " &
+                    If(obj("Manufacturer"), "N/A").ToString() & " - " &
+                    If(obj("PartNumber"), "N/A").ToString() & " - SN:" & If(obj("SerialNumber"), "N/A").ToString(),
+                    -1
+                )
+                    idx += 1
+                Next
+            End Using
 
             ' Discos físicos con estado
-            Dim searcherDrive As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Model, Size, Status FROM Win32_DiskDrive"))
-            Dim dIdx As Integer = 1
-            For Each obj As ManagementObject In searcherDrive.Get()
-                Dim sizeGB As Double = CDbl(obj("Size")) / (1024 ^ 3)
-                Dim status As String = If(obj("Status"), "Desconocido").ToString()
-                Dim iconIndex As Integer = If(status.ToUpper() = "OK", 0, 1) ' 0=verde, 1=rojo
-                datos("Disco físico " & dIdx) = Tuple.Create(If(obj("Model"), "N/A").ToString() & " - " &
-                                                                 sizeGB.ToString("0.00") & " GB - Estado: " & status, iconIndex)
-                dIdx += 1
-            Next
+            Using searcherDrive As New ManagementObjectSearcher(scope, New ObjectQuery("SELECT Model, Size, Status FROM Win32_DiskDrive"))
+                Dim dIdx As Integer = 1
+                For Each obj As ManagementObject In searcherDrive.Get()
+                    Dim sizeGB As Double = CDbl(If(obj("Size"), 0)) / (1024 ^ 3)
+                    Dim status As String = If(obj("Status"), "Desconocido").ToString()
+                    Dim iconIndex As Integer = If(status.Equals("OK", StringComparison.OrdinalIgnoreCase), 0, 1) ' 0=verde, 1=rojo
+                    datos("Disco físico " & dIdx) = Tuple.Create(
+                    If(obj("Model"), "N/A").ToString() & " - " &
+                    sizeGB.ToString("0.00") & " GB - Estado: " & status,
+                    iconIndex
+                )
+                    dIdx += 1
+                Next
+            End Using
 
         Catch ex As Exception
             datos("Error") = Tuple.Create("No se pudo obtener información: " & ex.Message, 1)
@@ -1019,8 +1453,6 @@ Public Class Form1
 
         Return datos
     End Function
-
-
     'Mostrar datos ventana Puesto
     Private Sub MostrarInfoEnVentana(puesto As String,
                                  datos As Dictionary(Of String, Tuple(Of String, Integer)),
@@ -1050,14 +1482,11 @@ Public Class Form1
         ' Íconos verde y rojo
         lvInfo.SmallImageList.Images.Add("ok", SystemIcons.Information)
         lvInfo.SmallImageList.Images.Add("fail", SystemIcons.Error)
-
         ' Definir columnas
         lvInfo.Columns.Add("Dato", 200, HorizontalAlignment.Left)
         lvInfo.Columns.Add("Valor", 450, HorizontalAlignment.Left)
-
         ' Determinar si hay problemas
         Dim hayProblemas As Boolean = False
-
         ' Cargar datos
         For Each kvp In datos
             Dim item As New ListViewItem(kvp.Key)
@@ -1068,7 +1497,6 @@ Public Class Form1
             End If
             lvInfo.Items.Add(item)
         Next
-
         ' Resumen general
         If hayProblemas Then
             lblResumen.Text = "Equipo con problemas detectados"
@@ -1077,180 +1505,43 @@ Public Class Form1
             lblResumen.Text = "Equipo en buen estado"
             lblResumen.ForeColor = Color.Green
         End If
-
-
-
         ' Botón cerrar
         Dim btnCerrar As New Button() With {
         .Text = "Cerrar",
         .Dock = DockStyle.Bottom
     }
         AddHandler btnCerrar.Click, Sub() ventanaInfo.Close()
-
         ' Agregar controles al formulario
         ventanaInfo.Controls.Add(lvInfo)
         ventanaInfo.Controls.Add(lblResumen)
         ventanaInfo.Controls.Add(btnCerrar)
-
         ' Mostrar ventana
         ventanaInfo.Show()
     End Sub
 
 
-    ' Evento cuando cambia el texto del TextBoxLegajo
-
-    Private Sub TextBoxLegajo_TextChanged(sender As Object, e As EventArgs) Handles TextBoxLegajo.TextChanged
-        Dim puestoActual As String = TextBoxPuesto.Text.Trim()
-        Dim legajoActual As String = TextBoxLegajo.Text.Trim()
-
-        If Regex.IsMatch(legajoActual, "^[NTE]\d{5}$", RegexOptions.IgnoreCase) Then
-            If HacerPing(puestoActual) Then
-                Try
-                    Dim rutaBase As String = "\\" & puestoActual & "\c$\Users\"
-                    Dim legajoUpper As String = legajoActual.ToUpper()
-                    Dim carpetas As String() = Directory.GetDirectories(rutaBase, legajoUpper & ".SUC*")
-
-                    If carpetas.Length > 0 Then
-                        ' Elegir la variante con mayor número
-                        Dim carpetaElegida As String = carpetas.OrderByDescending(
-                        Function(c)
-                            Dim nombre = Path.GetFileName(c)
-                            ' Extraer el número después de ".SUC"
-                            Dim sufijo = nombre.Substring(nombre.IndexOf(".SUC") + 4)
-                            Dim num As Integer
-                            If Integer.TryParse(sufijo, num) Then
-                                Return num
-                            Else
-                                Return -1
-                            End If
-                        End Function
-                    ).First()
-
-                        LabelEstadoLegajo.Text = "Legajo encontrado (variante .SUC)"
-                        LabelEstadoLegajo.ForeColor = Color.Green
-                        LabelEstadoLegajo.Tag = carpetaElegida
-                        LabelEstadoLegajo.Cursor = Cursors.Hand
-                        LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Underline)
-                        ToolTip1.SetToolTip(LabelEstadoLegajo, carpetaElegida)
-
-                    Else
-                        Dim carpetaDirecta As String = Path.Combine(rutaBase, legajoUpper)
-                        If Directory.Exists(carpetaDirecta) Then
-                            LabelEstadoLegajo.Text = "Legajo encontrado"
-                            LabelEstadoLegajo.ForeColor = Color.Green
-                            LabelEstadoLegajo.Tag = carpetaDirecta
-                            LabelEstadoLegajo.Cursor = Cursors.Hand
-                            LabelEstadoLegajo.Font = New Font(LabelEstadoLegajo.Font, FontStyle.Underline)
-                            ToolTip1.SetToolTip(LabelEstadoLegajo, carpetaDirecta)
-                        Else
-                            LabelEstadoLegajo.Text = "Legajo no encontrado"
-                            LabelEstadoLegajo.ForeColor = Color.Orange
-                            LabelEstadoLegajo.Tag = Nothing
-                        End If
-                    End If
-                Catch ex As Exception
-                    LabelEstadoLegajo.Text = "Error al validar legajo"
-                    LabelEstadoLegajo.ForeColor = Color.Red
-                    LabelEstadoLegajo.Tag = Nothing
-                End Try
-            Else
-                LabelEstadoLegajo.Text = "Puesto fuera de red"
-                LabelEstadoLegajo.ForeColor = Color.Red
-                LabelEstadoLegajo.Tag = Nothing
-            End If
-        Else
-            LabelEstadoLegajo.Text = "Esperando legajo válido..."
-            LabelEstadoLegajo.ForeColor = Color.Gray
-            LabelEstadoLegajo.Tag = Nothing
-        End If
-
-        ActualizarInfoGeneral()
-    End Sub
 
 
-
-    Private Sub LabelEstadoLegajo_Click(sender As Object, e As EventArgs) Handles LabelEstadoLegajo.Click
-        If LabelEstadoLegajo.ForeColor = Color.Green AndAlso LabelEstadoLegajo.Tag IsNot Nothing Then
-            Try
-                Process.Start("explorer.exe", LabelEstadoLegajo.Tag.ToString())
-            Catch ex As Exception
-                MessageBox.Show("No se pudo abrir puesto: " & ex.Message)
-            End Try
-        End If
-    End Sub
-
-
-    ' Evento cuando cambia el texto del TextBoxPuesto
-    Private Sub TextBoxPuesto_TextChanged(sender As Object, e As EventArgs) Handles TextBoxPuesto.TextChanged
-        Dim puestoActual As String = TextBoxPuesto.Text.Trim()
-
-        If puestoActual <> "" Then
-            ' Validamos que el puesto responda al ping
-            If HacerPing(puestoActual) Then
-                Dim rutaServidor As String = "\\" & puestoActual & "\c$"
-
-                LabelEstadoPuesto.Text = puestoActual
-                LabelEstadoPuesto.ForeColor = Color.Green
-                LabelEstadoPuesto.Tag = rutaServidor
-                LabelEstadoPuesto.Cursor = Cursors.Hand
-                LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Underline)
-                ToolTip1.SetToolTip(LabelEstadoPuesto, rutaServidor)
-            Else
-                LabelEstadoPuesto.Text = "Puesto fuera de red"
-                LabelEstadoPuesto.ForeColor = Color.Red
-                LabelEstadoPuesto.Tag = Nothing
-                LabelEstadoPuesto.Cursor = Cursors.Default
-                LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Regular)
-                ToolTip1.SetToolTip(LabelEstadoPuesto, "")
-            End If
-        Else
-            LabelEstadoPuesto.Text = "Esperando puesto válido..."
-            LabelEstadoPuesto.ForeColor = Color.Gray
-            LabelEstadoPuesto.Tag = Nothing
-            LabelEstadoPuesto.Cursor = Cursors.Default
-            LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Regular)
-            ToolTip1.SetToolTip(LabelEstadoPuesto, "")
-        End If
-
-        ActualizarInfoGeneral()
-    End Sub
-
-    ' Evento click del LabelEstadoPuesto
-    Private Sub LabelEstadoPuesto_Click(sender As Object, e As EventArgs) Handles LabelEstadoPuesto.Click
-        If LabelEstadoPuesto.ForeColor = Color.Green AndAlso LabelEstadoPuesto.Tag IsNot Nothing Then
-            Try
-                Process.Start("explorer.exe", LabelEstadoPuesto.Tag.ToString())
-            Catch ex As Exception
-                MessageBox.Show("No se pudo abrir la unidad de red: " & ex.Message)
-            End Try
-        End If
-    End Sub
-
-
-
-
-    'Validar Casilla
+    'Validar Casilla (TextBox sin CRRO; Label muestra CRRO<casilla> y linkea a \\server\Notes$\CRRO<casilla>)
     Private Sub TextBoxCasilla_TextChanged(sender As Object, e As EventArgs) Handles TextBoxCasilla.TextChanged
+        If _suspendEvents Then Exit Sub
         Dim servidorCompleto As String = LabelEstadoServidor.Text.Trim()
-        Dim casillaIngresada As String = TextBoxCasilla.Text.Trim().ToUpper()
+        ' Ahora tomamos la casilla tal cual la escribe el usuario (SIN CRRO)
+        Dim casillaIngresada As String = TextBoxCasilla.Text.Trim()
 
-        ' Si el usuario no escribió CRRO, lo agregamos automáticamente en el TextBox
-        If casillaIngresada <> "" AndAlso Not casillaIngresada.StartsWith("CRRO") Then
-            casillaIngresada = "CRRO" & casillaIngresada
-            TextBoxCasilla.Text = casillaIngresada
-            TextBoxCasilla.SelectionStart = TextBoxCasilla.Text.Length
-        End If
-
-        ' Validar formato: CRRO + letras/números (hasta 5 caracteres)
-        If Regex.IsMatch(casillaIngresada, "^CRRO[A-Z0-9]{3,5}$") Then
-            If Not String.IsNullOrEmpty(servidorCompleto) Then
+        ' Validar formato: solo letras/números y hasta 5 caracteres (sin prefijo CRRO)
+        If Regex.IsMatch(casillaIngresada, "^[A-Za-z0-9]{1,5}$") Then
+            If Not String.IsNullOrEmpty(servidorCompleto) AndAlso Not servidorCompleto.StartsWith("Esperando", StringComparison.OrdinalIgnoreCase) Then
                 Try
-                    Dim rutaCasilla As String = "\\" & servidorCompleto & "\Notes$\" & casillaIngresada
+                    ' Construimos la casilla con prefijo para mostrar y para la ruta UNC
+                    Dim casillaConPrefijo As String = "CRRO" & casillaIngresada.ToUpper()
+                    Dim rutaCasilla As String = "\\" & servidorCompleto & "\Notes$\" & casillaConPrefijo
 
                     If Directory.Exists(rutaCasilla) Then
-                        LabelEstadoCasilla.Text = casillaIngresada       ' Visual: CRROXXX
+                        ' Visual: mostrar CRROxxxxx en el Label
+                        LabelEstadoCasilla.Text = casillaConPrefijo
                         LabelEstadoCasilla.ForeColor = Color.Green
-                        LabelEstadoCasilla.Tag = rutaCasilla             ' Ruta: \\SMF0XSCXXX\Notes$\CRROXXX
+                        LabelEstadoCasilla.Tag = rutaCasilla              ' Ruta: \\SMF0XSCXXXX\Notes$\CRROxxxxx
                         LabelEstadoCasilla.Cursor = Cursors.Hand
                         LabelEstadoCasilla.Font = New Font(LabelEstadoCasilla.Font, FontStyle.Underline)
                         ToolTip1.SetToolTip(LabelEstadoCasilla, rutaCasilla)
@@ -1258,26 +1549,39 @@ Public Class Form1
                         LabelEstadoCasilla.Text = "Casilla no encontrada en " & servidorCompleto
                         LabelEstadoCasilla.ForeColor = Color.Orange
                         LabelEstadoCasilla.Tag = Nothing
+                        LabelEstadoCasilla.Cursor = Cursors.Default
+                        LabelEstadoCasilla.Font = New Font(LabelEstadoCasilla.Font, FontStyle.Regular)
+                        ToolTip1.SetToolTip(LabelEstadoCasilla, "")
                     End If
                 Catch ex As Exception
                     LabelEstadoCasilla.Text = "Error al validar casilla: " & ex.Message
                     LabelEstadoCasilla.ForeColor = Color.Red
                     LabelEstadoCasilla.Tag = Nothing
+                    LabelEstadoCasilla.Cursor = Cursors.Default
+                    LabelEstadoCasilla.Font = New Font(LabelEstadoCasilla.Font, FontStyle.Regular)
+                    ToolTip1.SetToolTip(LabelEstadoCasilla, "")
                 End Try
             Else
                 LabelEstadoCasilla.Text = "Servidor fuera de red"
                 LabelEstadoCasilla.ForeColor = Color.Red
                 LabelEstadoCasilla.Tag = Nothing
+                LabelEstadoCasilla.Cursor = Cursors.Default
+                LabelEstadoCasilla.Font = New Font(LabelEstadoCasilla.Font, FontStyle.Regular)
+                ToolTip1.SetToolTip(LabelEstadoCasilla, "")
             End If
         Else
+            ' Vuelve al estado de espera si no cumple la regla (o está vacío)
             LabelEstadoCasilla.Text = "Esperando casilla válida..."
             LabelEstadoCasilla.ForeColor = Color.Gray
             LabelEstadoCasilla.Tag = Nothing
+            LabelEstadoCasilla.Cursor = Cursors.Default
+            LabelEstadoCasilla.Font = New Font(LabelEstadoCasilla.Font, FontStyle.Regular)
+            ToolTip1.SetToolTip(LabelEstadoCasilla, "")
         End If
 
-        ' Actualizar info general y registrar acción
+        ' Actualizar info general y registrar acción (se mantiene tu lógica)
         ActualizarInfoGeneral()
-        RegistrarAccionHistorial("Casilla", TextBoxInfoGeneral.Text)
+
     End Sub
 
 
@@ -1296,9 +1600,21 @@ Public Class Form1
 
 
 
-    ' Método para actualizar la info consolidada
+    ' Actualiza la info consolidada
     Private Sub ActualizarInfoGeneral(Optional datosSucursal As Tuple(Of String, String, String) = Nothing)
         ' Si se pasan datos nuevos de sucursal, los guardamos en las variables persistentes
+
+        Dim sucursalActual As String = ""
+        If ComboBoxSucursales.SelectedItem IsNot Nothing Then
+            sucursalActual = ComboBoxSucursales.SelectedItem.ToString().PadLeft(4, "0"c)
+        End If
+
+        ' Si la sucursal es "0000", no mostrar datos persistentes
+        If sucursalActual = "0000" Then
+            sucursalTipo = ""
+            sucursalNombre = ""
+            sucursalDependeDe = ""
+        End If
         If datosSucursal IsNot Nothing Then
             sucursalTipo = datosSucursal.Item1
             sucursalNombre = datosSucursal.Item2
@@ -1317,11 +1633,7 @@ Public Class Form1
         ' Puesto
         Dim puestoActual As String = TextBoxPuesto.Text.Trim()
 
-        ' Sucursal
-        Dim sucursalActual As String = ""
-        If ComboBoxSucursales.SelectedItem IsNot Nothing Then
-            sucursalActual = ComboBoxSucursales.SelectedItem.ToString().PadLeft(4, "0"c)
-        End If
+
 
         ' Casilla
         Dim casillaActual As String = TextBoxCasilla.Text.Trim().ToUpper()
@@ -1356,92 +1668,32 @@ Public Class Form1
 
 
 
+    ' Bloquear caracteres inválidos
+    Private Sub TextBoxCasilla_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBoxCasilla.KeyPress
+        If Char.IsControl(e.KeyChar) Then Exit Sub
+        ' Sólo letras y números
+        If Not Char.IsLetterOrDigit(e.KeyChar) Then
+            e.Handled = True
+            Exit Sub
+        End If
 
+        Dim tb = DirectCast(sender, TextBox)
 
-
-
-    'Funcion Retroceder
-    Private Sub BtnRetroceder_Click(sender As Object, e As EventArgs) Handles BtnRetroceder.Click
-        ' Tomar la info consolidada del TextBoxInfoGeneral
-        Dim lineas() As String = TextBoxInfoGeneral.Text.Split(Environment.NewLine)
-
-        For Each linea As String In lineas
-            If linea.StartsWith("Servidor:") Then
-                LabelEstadoServidor.Text = linea.Replace("Servidor:", "").Trim()
-
-            ElseIf linea.StartsWith("Legajo:") Then
-                TextBoxLegajo.Text = linea.Replace("Legajo:", "").Trim()
-
-            ElseIf linea.StartsWith("Puesto:") Then
-                TextBoxPuesto.Text = linea.Replace("Puesto:", "").Trim()
-
-            ElseIf linea.StartsWith("Casilla:") Then
-                Dim casillaFormateada As String = linea.Replace("Casilla:", "").Trim()
-
-                ' La casilla formateada es sucursal + sufijo (ej: 3590POP)
-                If casillaFormateada.Length >= 4 Then
-                    Dim sucursal As String = casillaFormateada.Substring(0, 4)
-                    Dim sufijo As String = casillaFormateada.Substring(4)
-
-                    ' Actualizar ComboBoxSucursal si existe ese valor
-                    For i As Integer = 0 To ComboBoxSucursales.Items.Count - 1
-                        If ComboBoxSucursales.Items(i).ToString().PadLeft(4, "0"c) = sucursal Then
-                            ComboBoxSucursales.SelectedIndex = i
-                            Exit For
-                        End If
-                    Next
-
-                    ' Actualizar TextBoxCasilla con CRRO + sufijo
-                    TextBoxCasilla.Text = "CRRO" & sufijo.ToUpper()
-                End If
-            End If
-        Next
-
-        ' Refrescar automáticamente los labels de estado
-        ComboBoxSucursales_SelectedIndexChanged(ComboBoxSucursales, EventArgs.Empty)
-        TextBoxPuesto_TextChanged(TextBoxPuesto, EventArgs.Empty)
-        TextBoxLegajo_TextChanged(TextBoxLegajo, EventArgs.Empty)
-        TextBoxCasilla_TextChanged(TextBoxCasilla, EventArgs.Empty)
-
-        ' Mostrar mensaje de confirmación
-        MessageBox.Show("Campos restaurados desde la información consolidada.", "Retroceder", MessageBoxButtons.OK, MessageBoxIcon.Information)
-
-        RegistrarAccionHistorial("Retroceder", TextBoxInfoGeneral.Text)
-    End Sub
-
-
-
-
-
-
-
-
-
-
-
-    'Funcion registro historial
-    Private Sub RegistrarAccionHistorial(nombreAccion As String, detalle As String)
-        Dim separador As String = New String("-"c, 40)
-        Dim entradaHistorial As String =
-        $"Acción: {nombreAccion}" & Environment.NewLine &
-        $"Fecha/Hora: {DateTime.Now}" & Environment.NewLine &
-        detalle & Environment.NewLine &
-        separador & Environment.NewLine
-
-        TextBoxHistorial.AppendText(entradaHistorial)
-    End Sub
-
-    Private Sub ComboBoxSucursales_SelectedIndexChanged(sender As Object, e As EventArgs) Handles ComboBoxSucursales.SelectedIndexChanged
-        Dim codigo As String = ComboBoxSucursales.SelectedItem.ToString().PadLeft(4, "0"c)
-
-        If DiccionarioSucursales.ContainsKey(codigo) Then
-            Dim datos = DiccionarioSucursales(codigo)
-            ActualizarInfoGeneral(datos)
-        Else
-            ' Si no existe en el diccionario, solo actualiza la info general sin datos extra
-            ActualizarInfoGeneral()
+        Dim seleccionLargo = tb.SelectionLength
+        If tb.TextLength - seleccionLargo >= 5 Then
+            e.Handled = True
         End If
     End Sub
+
+
+
+
+
+
+
+
+
+
 
 
     'Funcion Actualizar
@@ -1460,34 +1712,67 @@ Public Class Form1
                 MostrarInfoEnVentana(puestoActual, datos, TextBoxLegajo)
             End If
         End If
-        ' Guardar en historial 
-        RegistrarAccionHistorial("Actualizar", TextBoxInfoGeneral.Text)
     End Sub
 
-    'Funcion Salir
-    Private Sub BtnSalir_Click(sender As Object, e As EventArgs) Handles BtnSalir.Click
-        Dim respuesta As DialogResult = MessageBox.Show("¿Desea salir de la aplicación?",
-                                                        "Confirmar salida",
-                                                    MessageBoxButtons.YesNo,
-                                                    MessageBoxIcon.Question)
-        If respuesta = DialogResult.Yes Then
-            Application.Exit()
-        End If
+    Private Sub BtnLimpiar_Click(sender As Object, e As EventArgs) Handles BtnLimpiar.Click
+        ResetApp()
     End Sub
 
 
+    Private Sub ResetApp()
+        _suspendEvents = True
+        Try
+            ' 1) Limpiar campos visuales sin disparar validaciones ni pings
+            LimpiarControles(Me)
 
-    'Funcion Reset
-    Private Sub BtnReset_Click(sender As Object, e As EventArgs) Handles BtnReset.Click
-        ' Llamamos a la función que limpia todos los controles del formulario
-        LimpiarControles(Me)
+            ' 2) Restaurar labels a estado “inicio”
+            ResetLabelEstado(LabelEstadoServidor, "Esperando Servidor...")
+            ResetLabelEstado(LabelEstadoPuesto, "Esperando Puesto válido...")
+            ResetLabelEstado(LabelEstadoLegajo, "Esperando legajo válido...")
+            ResetLabelEstado(LabelEstadoCasilla, "Esperando casilla válida...")
 
-        ' Resetear el LabelServidor al valor inicial
-        LabelEstadoServidor.Text = "SMF00SC0000"
-        LabelEstadoServidor.ForeColor = Color.Black
+            ' 3) Reiniciar ComboBox de sucursales al “0000”
+            If ComboBoxSucursales.DataSource IsNot Nothing Then
+                ComboBoxSucursales.SelectedIndex = 0
+            End If
+
+            ' 4) Valores iniciales específicos
+            TextBoxPuesto.MaxLength = 11
+            CheckBoxInformacion.Checked = False
+
+            ' 5) Actualizar información consolidada
+            ActualizarInfoGeneral()
+
+        Finally
+            _suspendEvents = False
+        End Try
     End Sub
 
-    ' Función recursiva para limpiar controles dentro de cualquier contenedor
+
+
+
+
+
+
+
+
+
+
+
+    ' Evita ejecutar eventos mientras se limpia / re-inicializa
+    Private _suspendEvents As Boolean = False
+
+    ' Helper: resetear un label a estado “espera”
+    Private Sub ResetLabelEstado(lbl As Label, texto As String)
+        lbl.Text = texto
+        lbl.ForeColor = Color.Gray
+        lbl.Tag = Nothing
+        lbl.Cursor = Cursors.Default
+        lbl.Font = New Font(lbl.Font, FontStyle.Regular)
+        ToolTip1.SetToolTip(lbl, "")
+    End Sub
+
+    ' Limpia recursivamente controles de texto, combos, checks, radios
     Private Sub LimpiarControles(container As Control)
         For Each ctrl As Control In container.Controls
             If TypeOf ctrl Is TextBox Then
@@ -1499,21 +1784,24 @@ Public Class Form1
             ElseIf TypeOf ctrl Is RadioButton Then
                 CType(ctrl, RadioButton).Checked = False
             End If
-
-            ' Si el control tiene hijos (ej: GroupBox, Panel, TabPage), limpiar también
+            ' Si el control tiene hijos, limpiar también
             If ctrl.HasChildren Then
                 LimpiarControles(ctrl)
             End If
         Next
     End Sub
 
-    'Funcion limpiar historial
-    Private Sub BtnLimpiarHistorial_Click(sender As Object, e As EventArgs) Handles BtnLimpiarHistorial.Click
-        TextBoxHistorial.Clear()
-        RegistrarAccionHistorial("Historial", "Se limpió el historial de acciones.")
+
+
+
+    'Funcion Salir
+    Private Sub BtnSalir_Click(sender As Object, e As EventArgs) Handles BtnSalir.Click
+        Dim respuesta As DialogResult = MessageBox.Show("¿Desea salir de la aplicación?",
+                                                        "Confirmar salida",
+                                                    MessageBoxButtons.YesNo,
+                                                    MessageBoxIcon.Question)
+        If respuesta = DialogResult.Yes Then
+            Application.Exit()
+        End If
     End Sub
-
-
-
-
 End Class

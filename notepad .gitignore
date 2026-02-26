@@ -1,0 +1,18 @@
+# Visual Studio / .NET
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+TestResults/
+*.log
+
+# Build outputs
+
+*.dll
+*.pdb
+*.cache
+
+# NuGet/packages
+packages/
