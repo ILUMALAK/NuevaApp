@@ -1,0 +1,62 @@
+26/02/2026
+
+Se agregan verificaciones y validacion  
+	SUCURSAL
+		Creacion de Diccionario Local De Sucursal hasta agregar boton o funcion IMPORTAR SUCURSALES 
+		Error al intentar escribir en el rombo de seleccion
+		Al iniciar la aplicacion toma sucursal 0000 como base
+		Ahora al inciar queda en la espera de ingresar servidor
+		Se corrige e informa VERDE conectado ROJO ningun servidor responde para xxx
+		No realiza ping o busca servidor al estar en estado 0000
+		Ahora permite escribir solo 4 numero o pegarlos
+		No permite ingresar letras o caracter especiales
+	PUESTO
+		Ahora solo permite 11 digitos formato valido 
+		Letra válida + 4 números + SC + 4 números
+		Letras válidas: A, B, C, L, M, X, O, H, G
+		**Proximos cambios validara formato equipo de Sucursal turnero equipo Auditor
+		No permite el ingreso de caracteres especiales
+		Permite ingresar minuscula o mayuscula
+		Muestra al usuario en mayuscula el puesto 
+		Se corrige e informa VERDE conectado NARANJA formato invalido ROJO fuera de red
+			Se corrige check de INFORMACION
+				Se elimina boton abrir disco C$ del Puesto
+				Se elimina boton abrir Disco c$ Legajo al haberlo escrito en cualquier momento y si es valido en el puesto
+				Se modifica para poder tener la ventana informacion en segundo plano o ventana emergente
+				Se agrega boton Salir para facilitar el cierre de ventana
+				Se incluye NOMBRE del puesto en INFORMACION
+	LEGAJO
+		Se desactiva el ingreso de caracter especiales
+		Se limita el ingreso de dato a 1 letra 5 numero 6 caracteres
+		Formato valido solo N T E + numero
+		Permite pegar o escribir mayuscula o minuscula
+		Muestra el Legajo correspondiete
+		Ahora informa si tiene variacion .SUC
+		Analiza y verifica si hay variacion en caso de ser true busca el de mayor valor
+		Permite abrir Unidad de Red si el legajo se encuentra en el puesto seleccinado correctamente
+		Estado VERDE encontrado, NARANJA no encontrado, Rojo no valido
+	CASILLA
+		Textbox ahora no inicia al escribir con CRRO
+		Se limita el ingreso de caracteres a 5
+		Al ingresar numero desde el incio informa casilla no encontrada
+		Actualmente valida solo la sucursal seleccionada en combo SUCURSAL
+		No requiere anteponer sucursal+casilla
+		Ante el ingreso correcto muestra CRRO+casilla, dirrecciona correctamente a unidad de red
+	ACTUALIZAR
+		Se agrega funcion 
+		Al cambiar los datos de los campos muestra correctamente la informacion en panel de informacion
+		Check Informacion esta marcado se inicia la ventana con la informacion correspondiente
+	LIMPIAR 	
+		Se agrega boton
+		Elimina informacion de los campos 
+		reestablece SUCURSAL a 0000
+Otros
+	se elimina funcion HISTORIAL
+	Se elimina Boton RETROCESO
+	Se elimina pestañas varias hasta implemtaciones
+	se desactiva botones sin funciones definida		
+	Se agrega INFORMACION de ultima masterizacion de Script Adebasto
+	Se agrega INFORMACION de tipo de equipo CPU/NOTEBOOK
+		
+		
+	

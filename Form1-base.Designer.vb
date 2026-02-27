@@ -60,12 +60,19 @@ Partial Class Form1
         Me.Button5 = New System.Windows.Forms.Button()
         Me.TabControl1 = New System.Windows.Forms.TabControl()
         Me.ToolTip1 = New System.Windows.Forms.ToolTip(Me.components)
+        Me.GroupBox4 = New System.Windows.Forms.GroupBox()
+        Me.GroupBox5 = New System.Windows.Forms.GroupBox()
+        Me.GroupBox6 = New System.Windows.Forms.GroupBox()
+        Me.Label5 = New System.Windows.Forms.Label()
+        Me.Label6 = New System.Windows.Forms.Label()
         Me.TabPage4.SuspendLayout()
         Me.TabPage1.SuspendLayout()
         Me.GroupBox1.SuspendLayout()
         Me.GroupBox2.SuspendLayout()
         Me.GroupBox3.SuspendLayout()
         Me.TabControl1.SuspendLayout()
+        Me.GroupBox4.SuspendLayout()
+        Me.GroupBox5.SuspendLayout()
         Me.SuspendLayout()
         '
         'TabPage4
@@ -139,12 +146,17 @@ Partial Class Form1
         '
         'GroupBox2
         '
+        Me.GroupBox2.Controls.Add(Me.Button1)
         Me.GroupBox2.Controls.Add(Me.BtnSalir)
         Me.GroupBox2.Controls.Add(Me.LabelEstadoCasilla)
         Me.GroupBox2.Controls.Add(Me.LabelEstadoPuesto)
+        Me.GroupBox2.Controls.Add(Me.Button8)
         Me.GroupBox2.Controls.Add(Me.BtnLimpiar)
+        Me.GroupBox2.Controls.Add(Me.Button7)
         Me.GroupBox2.Controls.Add(Me.LabelEstadoLegajo)
+        Me.GroupBox2.Controls.Add(Me.Button6)
         Me.GroupBox2.Controls.Add(Me.BtnActualizar)
+        Me.GroupBox2.Controls.Add(Me.Button5)
         Me.GroupBox2.Controls.Add(Me.LabelEstadoServidor)
         Me.GroupBox2.Controls.Add(Me.TextBoxInfoGeneral)
         Me.GroupBox2.Controls.Add(Me.TextBoxCasilla)
@@ -315,23 +327,19 @@ Partial Class Form1
         '
         'GroupBox3
         '
-        Me.GroupBox3.Controls.Add(Me.Button1)
-        Me.GroupBox3.Controls.Add(Me.CheckBox3)
-        Me.GroupBox3.Controls.Add(Me.CheckBox2)
-        Me.GroupBox3.Controls.Add(Me.Button8)
-        Me.GroupBox3.Controls.Add(Me.Button7)
-        Me.GroupBox3.Controls.Add(Me.Button6)
-        Me.GroupBox3.Controls.Add(Me.Button5)
-        Me.GroupBox3.Location = New System.Drawing.Point(37, 255)
+        Me.GroupBox3.Controls.Add(Me.GroupBox6)
+        Me.GroupBox3.Controls.Add(Me.GroupBox5)
+        Me.GroupBox3.Controls.Add(Me.GroupBox4)
+        Me.GroupBox3.Location = New System.Drawing.Point(23, 229)
         Me.GroupBox3.Name = "GroupBox3"
-        Me.GroupBox3.Size = New System.Drawing.Size(566, 164)
+        Me.GroupBox3.Size = New System.Drawing.Size(729, 226)
         Me.GroupBox3.TabIndex = 0
         Me.GroupBox3.TabStop = False
         Me.GroupBox3.Text = "GroupBox3"
         '
         'Button1
         '
-        Me.Button1.Location = New System.Drawing.Point(407, 31)
+        Me.Button1.Location = New System.Drawing.Point(434, 200)
         Me.Button1.Name = "Button1"
         Me.Button1.Size = New System.Drawing.Size(122, 23)
         Me.Button1.TabIndex = 11
@@ -342,28 +350,26 @@ Partial Class Form1
         '
         Me.CheckBox3.AutoSize = True
         Me.CheckBox3.Enabled = False
-        Me.CheckBox3.Location = New System.Drawing.Point(22, 102)
+        Me.CheckBox3.Location = New System.Drawing.Point(15, 42)
         Me.CheckBox3.Name = "CheckBox3"
-        Me.CheckBox3.Size = New System.Drawing.Size(94, 17)
+        Me.CheckBox3.Size = New System.Drawing.Size(15, 14)
         Me.CheckBox3.TabIndex = 10
-        Me.CheckBox3.Text = "AppDataLocal"
         Me.CheckBox3.UseVisualStyleBackColor = True
         '
         'CheckBox2
         '
         Me.CheckBox2.AutoSize = True
         Me.CheckBox2.Enabled = False
-        Me.CheckBox2.Location = New System.Drawing.Point(22, 79)
+        Me.CheckBox2.Location = New System.Drawing.Point(15, 19)
         Me.CheckBox2.Name = "CheckBox2"
-        Me.CheckBox2.Size = New System.Drawing.Size(110, 17)
+        Me.CheckBox2.Size = New System.Drawing.Size(15, 14)
         Me.CheckBox2.TabIndex = 10
-        Me.CheckBox2.Text = "AppDataRoaming"
         Me.CheckBox2.UseVisualStyleBackColor = True
         '
         'Button8
         '
         Me.Button8.Enabled = False
-        Me.Button8.Location = New System.Drawing.Point(305, 31)
+        Me.Button8.Location = New System.Drawing.Point(338, 200)
         Me.Button8.Name = "Button8"
         Me.Button8.Size = New System.Drawing.Size(75, 23)
         Me.Button8.TabIndex = 8
@@ -373,7 +379,7 @@ Partial Class Form1
         'Button7
         '
         Me.Button7.Enabled = False
-        Me.Button7.Location = New System.Drawing.Point(205, 31)
+        Me.Button7.Location = New System.Drawing.Point(226, 200)
         Me.Button7.Name = "Button7"
         Me.Button7.Size = New System.Drawing.Size(75, 23)
         Me.Button7.TabIndex = 7
@@ -383,7 +389,7 @@ Partial Class Form1
         'Button6
         '
         Me.Button6.Enabled = False
-        Me.Button6.Location = New System.Drawing.Point(108, 31)
+        Me.Button6.Location = New System.Drawing.Point(131, 200)
         Me.Button6.Name = "Button6"
         Me.Button6.Size = New System.Drawing.Size(75, 23)
         Me.Button6.TabIndex = 6
@@ -393,7 +399,7 @@ Partial Class Form1
         'Button5
         '
         Me.Button5.Enabled = False
-        Me.Button5.Location = New System.Drawing.Point(22, 31)
+        Me.Button5.Location = New System.Drawing.Point(32, 200)
         Me.Button5.Name = "Button5"
         Me.Button5.Size = New System.Drawing.Size(75, 23)
         Me.Button5.TabIndex = 5
@@ -412,6 +418,55 @@ Partial Class Form1
         Me.TabControl1.Size = New System.Drawing.Size(987, 621)
         Me.TabControl1.TabIndex = 0
         '
+        'GroupBox4
+        '
+        Me.GroupBox4.Controls.Add(Me.Label6)
+        Me.GroupBox4.Controls.Add(Me.Label5)
+        Me.GroupBox4.Location = New System.Drawing.Point(14, 55)
+        Me.GroupBox4.Name = "GroupBox4"
+        Me.GroupBox4.Size = New System.Drawing.Size(168, 130)
+        Me.GroupBox4.TabIndex = 11
+        Me.GroupBox4.TabStop = False
+        Me.GroupBox4.Text = "GroupBox4"
+        '
+        'GroupBox5
+        '
+        Me.GroupBox5.Controls.Add(Me.CheckBox3)
+        Me.GroupBox5.Controls.Add(Me.CheckBox2)
+        Me.GroupBox5.Location = New System.Drawing.Point(188, 59)
+        Me.GroupBox5.Name = "GroupBox5"
+        Me.GroupBox5.Size = New System.Drawing.Size(295, 136)
+        Me.GroupBox5.TabIndex = 12
+        Me.GroupBox5.TabStop = False
+        Me.GroupBox5.Text = "GroupBox5"
+        '
+        'GroupBox6
+        '
+        Me.GroupBox6.Location = New System.Drawing.Point(510, 53)
+        Me.GroupBox6.Name = "GroupBox6"
+        Me.GroupBox6.Size = New System.Drawing.Size(218, 142)
+        Me.GroupBox6.TabIndex = 13
+        Me.GroupBox6.TabStop = False
+        Me.GroupBox6.Text = "GroupBox6"
+        '
+        'Label5
+        '
+        Me.Label5.AutoSize = True
+        Me.Label5.Location = New System.Drawing.Point(29, 30)
+        Me.Label5.Name = "Label5"
+        Me.Label5.Size = New System.Drawing.Size(91, 13)
+        Me.Label5.TabIndex = 0
+        Me.Label5.Text = "AppDataRoaming"
+        '
+        'Label6
+        '
+        Me.Label6.AutoSize = True
+        Me.Label6.Location = New System.Drawing.Point(32, 54)
+        Me.Label6.Name = "Label6"
+        Me.Label6.Size = New System.Drawing.Size(75, 13)
+        Me.Label6.TabIndex = 1
+        Me.Label6.Text = "AppDataLocal"
+        '
         'Form1
         '
         Me.AutoScaleDimensions = New System.Drawing.SizeF(6.0!, 13.0!)
@@ -427,8 +482,11 @@ Partial Class Form1
         Me.GroupBox2.ResumeLayout(False)
         Me.GroupBox2.PerformLayout()
         Me.GroupBox3.ResumeLayout(False)
-        Me.GroupBox3.PerformLayout()
         Me.TabControl1.ResumeLayout(False)
+        Me.GroupBox4.ResumeLayout(False)
+        Me.GroupBox4.PerformLayout()
+        Me.GroupBox5.ResumeLayout(False)
+        Me.GroupBox5.PerformLayout()
         Me.ResumeLayout(False)
 
     End Sub
@@ -468,4 +526,9 @@ Partial Class Form1
     Friend WithEvents TabControl1 As TabControl
     Friend WithEvents ToolTip1 As ToolTip
     Friend WithEvents Button1 As Button
+    Friend WithEvents GroupBox6 As GroupBox
+    Friend WithEvents GroupBox5 As GroupBox
+    Friend WithEvents GroupBox4 As GroupBox
+    Friend WithEvents Label6 As Label
+    Friend WithEvents Label5 As Label
 End Class

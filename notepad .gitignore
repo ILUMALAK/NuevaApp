@@ -1,3 +1,4 @@
+cat > .gitignore << 'EOF'
 # Visual Studio / .NET
 bin/
 obj/
@@ -9,10 +10,11 @@ TestResults/
 *.log
 
 # Build outputs
-
+*.exe
 *.dll
 *.pdb
 *.cache
 
-# NuGet/packages
+# NuGet
 packages/
+EOF

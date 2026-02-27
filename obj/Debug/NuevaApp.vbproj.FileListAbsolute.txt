@@ -1,4 +1,3 @@
-C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.vbprojAssemblyReference.cache
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.Form1.resources
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.Resources.resources
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.vbproj.GenerateResource.cache

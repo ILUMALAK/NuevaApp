@@ -54,7 +54,7 @@ Public Class Form1
     End Function
 
     Private Sub ComboBoxSucursales_TextChanged(sender As Object, e As EventArgs) Handles ComboBoxSucursales.TextChanged
-        ' También procesamos cuando el usuario escribe manualmente
+        ' Proceso cuando el usuario escribe manualmente
         ProcesarSucursal()
     End Sub
 
@@ -70,8 +70,8 @@ Public Class Form1
         ' Si es 0000, estado inicial y no procesar
         If codigoTexto = "0000" Then
             ResetLabelEstado(LabelEstadoServidor, "Esperando Servidor...")
-            ' Si querés, también podés limpiar Tipo/Nombre/DependeDe si los usás:
-            ' sucursalTipo = "" : sucursalNombre = "" : sucursalDependeDe = ""
+            ' limpia Tipo/Nombre/DependeDe 
+            sucursalTipo = "" : sucursalNombre = "" : sucursalDependeDe = ""
             ActualizarInfoGeneral()
             Exit Sub
         End If
@@ -89,13 +89,12 @@ Public Class Form1
         ' Si la sucursal existe en el diccionario, actualizamos los datos; si no, solo refrescamos la info general
         If DiccionarioSucursales.ContainsKey(codigo) Then
             Dim datos = DiccionarioSucursales(codigo)
-            ' Esto setea Tipo/Nombre/DependeDe en las variables persistentes dentro de ActualizarInfoGeneral
+            ' Setea Tipo/Nombre/DependeDe en las variables persistentes dentro de ActualizarInfoGeneral
             ActualizarInfoGeneral(datos)
         Else
             ActualizarInfoGeneral()
         End If
 
-        ' Opcional: si querés disparar la detección de servidor inmediatamente al elegir la sucursal válida:
         ProcesarServidor(codigo)
     End Sub
 
@@ -950,14 +949,14 @@ Public Class Form1
         End If
     End Sub
 
-    ' Método auxiliar  de servidor
+    ' Método auxiliar de servidor
     Private Sub ProcesarServidor(sucursalFormateada As String)
         If sucursalFormateada = "0000" Then Exit Sub
         Dim servidorActivo As String = DetectarSMF(sucursalFormateada)
 
         If servidorActivo <> "" Then
             Dim servidorCompleto As String = servidorActivo & "SC" & sucursalFormateada
-            Dim rutaServidor As String = "\\" & servidorCompleto & "\c$"
+            Dim rutaServidor As String = "\\" & servidorCompleto
 
             LabelEstadoServidor.Text = servidorCompleto
             LabelEstadoServidor.ForeColor = Color.Green
