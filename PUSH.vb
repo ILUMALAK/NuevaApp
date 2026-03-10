@@ -1,21 +1,29 @@
-﻿Imports System.IO
+﻿Imports System
+Imports System.IO
 Imports System.Net.NetworkInformation
 Imports System.Management
 Imports System.Diagnostics
+Imports System.Text
 Imports System.Text.RegularExpressions
 Imports System.Net
+Imports System.Threading.Tasks
 
 
-Public Class Form1
+
+Public Class PUSH
 
     ' Variables persistentes para datos de sucursal
     Private sucursalTipo As String = ""
     Private sucursalNombre As String = ""
     Private sucursalDependeDe As String = ""
-
+    Private _repairRunning As Boolean = False              ' evita ejecuciones concurrentes
+    Private _taskRunning As Boolean = False                ' bloquea todas las acciones si hay una en curso
+    Private _actionIcons() As PictureBox                   ' acá registramos todos los PictureBox de tareas
+    Private _lastPingHost As String = Nothing              ' para no spamear pings si no cambió el host
+    Private _lastPingResult As Boolean? = Nothing
 
     'Carga
-    Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+    Private Sub PUSH_Load(sender As Object, e As EventArgs) Handles MyBase.Load
 
         LabelEstadoPuesto.Text = "Esperando Puesto"
         LabelEstadoPuesto.ForeColor = Color.Gray
@@ -26,6 +34,7 @@ Public Class Form1
         LabelEstadoCasilla.Text = "Esperando Casilla..."
         LabelEstadoCasilla.ForeColor = Color.Gray
         TextBoxPuesto.MaxLength = 11
+
 
 
 
@@ -42,7 +51,184 @@ Public Class Form1
 
         ' Inicializar el CheckBox desmarcado
         CheckBoxInformacion.Checked = False
+        'Inicializar iconos
+        InitActionIcons()
+        'Actualiza iconos
+        UpdateIconsForHostAsync()
     End Sub
+    ''Registracion de iconos
+    Private Sub InitActionIcons()
+        ' Agregá acá TODOS los íconos que dependan del puesto
+        _actionIcons = {Pic365, PicCalc} ''agregar demas pics
+
+        ' Estado inicial
+        For Each pic In _actionIcons
+            If pic IsNot Nothing Then
+                pic.Enabled = False
+                pic.Cursor = Cursors.No
+            End If
+        Next
+    End Sub
+
+    ''agrega funcion PING
+    Private Function HostDisponible(host As String) As Boolean
+        If String.IsNullOrWhiteSpace(host) Then Return False
+        Try
+            Dim p As New System.Net.NetworkInformation.Ping()
+            Dim r = p.Send(host, 1200)
+            If r IsNot Nothing AndAlso r.Status = System.Net.NetworkInformation.IPStatus.Success Then
+                Return True
+            End If
+        Catch
+            ' ignoramos errores (host inválido, DNS, etc.)
+        End Try
+        Return False
+    End Function
+    '##############################
+    '  HELPERS: LOG → InfoProceso
+    '##############################
+    Private Sub ClearInfo()
+        If InfoProceso Is Nothing Then Exit Sub
+        If InfoProceso.InvokeRequired Then
+            InfoProceso.Invoke(Sub() InfoProceso.Clear())
+        Else
+            InfoProceso.Clear()
+        End If
+    End Sub
+
+    Private Sub AppendInfo(msg As String)
+        If InfoProceso Is Nothing Then Exit Sub
+        Dim line As String = $"[{DateTime.Now:HH:mm:ss}] {msg}"
+        If InfoProceso.InvokeRequired Then
+            InfoProceso.Invoke(Sub() InfoProceso.AppendText(line & Environment.NewLine))
+        Else
+            InfoProceso.AppendText(line & Environment.NewLine)
+        End If
+    End Sub
+
+    '##############################
+    '  HELPERS: PROGRESS BAR
+    '##############################
+    Private Sub SetProgress(pct As Integer)
+        If PbProceso Is Nothing Then Exit Sub
+        Dim v = Math.Max(0, Math.Min(100, pct))
+        If PbProceso.InvokeRequired Then
+            PbProceso.Invoke(Sub()
+                                 PbProceso.Minimum = 0
+                                 PbProceso.Maximum = 100
+                                 PbProceso.Value = v
+                             End Sub)
+        Else
+            PbProceso.Minimum = 0
+            PbProceso.Maximum = 100
+            PbProceso.Value = v
+        End If
+    End Sub
+
+    '##############################
+    '  HELPERS: ESTADO ICONO
+    '##############################
+    Private Sub SetPic365State(running As Boolean)
+        If Pic365 Is Nothing Then Exit Sub
+        If Pic365.InvokeRequired Then
+            Pic365.Invoke(Sub() SetPic365State(running))
+            Exit Sub
+        End If
+        Pic365.Enabled = Not running
+        Pic365.Cursor = If(running, Cursors.No, Cursors.Hand)
+        ' Si querés un efecto visual adicional mientras corre:
+        Pic365.BackColor = If(running, Color.LightGray, SystemColors.Control)
+    End Sub
+
+    '============================
+    ' PROGRESSBAR: MARQUEE ON/OFF
+    '============================
+    Private Sub SetProgressMarquee(onOff As Boolean)
+        If PbProceso Is Nothing Then Exit Sub
+        If PbProceso.InvokeRequired Then
+            PbProceso.Invoke(Sub() SetProgressMarquee(onOff))
+            Return
+        End If
+        If onOff Then
+            PbProceso.Style = ProgressBarStyle.Marquee
+            PbProceso.MarqueeAnimationSpeed = 30
+        Else
+            PbProceso.Style = ProgressBarStyle.Blocks
+            PbProceso.MarqueeAnimationSpeed = 0
+        End If
+    End Sub
+
+    '==============================================
+    ' ESPERAR QUE UN PROCESO REMOTO (PID) FINALICE
+    ' - Hace polling a Win32_Process por ProcessId
+    ' - Registra avance cada "logEverySec"
+    ' - Devuelve True si finaliza; False si timeout
+    '==============================================
+    Private Function WaitRemoteProcessExit(scope As ManagementScope,
+                                      pid As Integer,
+                                      Optional timeoutMinutes As Integer = 90,
+                                      Optional pollMs As Integer = 2000,
+                                      Optional logEverySec As Integer = 15) As Boolean
+        Dim start = DateTime.Now
+        Dim nextLog = start.AddSeconds(logEverySec)
+
+        Do
+            ' ¿Sigue vivo el PID?
+            Using q As New ManagementObjectSearcher(scope, New ObjectQuery($"SELECT ProcessId FROM Win32_Process WHERE ProcessId={pid}"))
+                Dim alive As Boolean = q.Get().Count > 0
+                If Not alive Then
+                    Return True
+                End If
+            End Using
+
+            ' Log periódico
+            Dim now = DateTime.Now
+            If now >= nextLog Then
+                Dim elapsed = now - start
+                AppendInfo($"  · Reparación en curso… (tiempo transcurrido {Math.Floor(elapsed.TotalMinutes)} min {elapsed.Seconds} s)")
+                nextLog = now.AddSeconds(logEverySec)
+            End If
+
+            ' Timeout
+            If (DateTime.Now - start).TotalMinutes >= timeoutMinutes Then
+                AppendInfo("  ✗ Timeout de espera alcanzado.")
+                Return False
+            End If
+
+            Threading.Thread.Sleep(pollMs)
+        Loop
+    End Function
+
+
+    ' =========================
+    ' WMI CONNECT (root\cimv2)
+    ' =========================
+    Private Function WmiConnect(host As String, Optional ns As String = "root\cimv2") As System.Management.ManagementScope
+        Dim options As New System.Management.ConnectionOptions With {
+        .Impersonation = System.Management.ImpersonationLevel.Impersonate,
+        .Authentication = System.Management.AuthenticationLevel.PacketPrivacy,
+        .EnablePrivileges = True,
+        .Timeout = TimeSpan.FromSeconds(5)}
+        Dim scope = New System.Management.ManagementScope("\\" & host & "\" & ns, options)
+        scope.Connect()
+        Return scope
+    End Function
+
+    ' =========================
+    ' UTILES
+    ' =========================
+    Private Function UncPath(equipo As String, driveOrPath As String) As String
+        ' Ej: UncPath("PC01", "C:\Temp\file.txt") -> \\PC01\C$\Temp\file.txt
+        Return "\\" & equipo & "\" & driveOrPath.Replace(":", "$")
+    End Function
+
+    Private Function RemoteFileExists(equipo As String, fullPath As String) As Boolean
+        ' Chequea existencia por UNC
+        Dim unc = UncPath(equipo, fullPath)
+        Return System.IO.File.Exists(unc)
+    End Function
+
+
     Private Function HacerPing(host As String) As Boolean
         Try
             Dim ping As New Ping()
@@ -956,7 +1142,7 @@ Public Class Form1
 
         If servidorActivo <> "" Then
             Dim servidorCompleto As String = servidorActivo & "SC" & sucursalFormateada
-            Dim rutaServidor As String = "\" & servidorCompleto & "\"
+            Dim rutaServidor As String = "\\" & servidorCompleto & "\"
 
             LabelEstadoServidor.Text = servidorCompleto
             LabelEstadoServidor.ForeColor = Color.Green
@@ -1042,7 +1228,7 @@ Public Class Form1
             ' Validamos que el puesto responda al ping
             If HacerPing(puestoActual) Then
                 Try
-                    Dim rutaBase As String = "\" & puestoActual & "\c$\Users\"
+                    Dim rutaBase As String = "\\" & puestoActual & "\c$\Users\"
                     Dim legajoUpper As String = legajoActual.ToUpper()
 
                     ' Buscar variantes con sufijo .SUC#
@@ -1224,9 +1410,85 @@ Public Class Form1
             ToolTip1.SetToolTip(LabelEstadoPuesto, "")
         End If
 
-        ' Actualizar Info consolidada
+        ' 👉 Reset cache de ping y actualizar íconos de TODAS las acciones
+        _lastPingHost = Nothing
+        _lastPingResult = Nothing
+
         ActualizarInfoGeneral()
+        UpdateIconsForHostAsync()
     End Sub
+    Private Async Function HostDisponibleAsync(host As String) As Task(Of Boolean)
+        If String.IsNullOrWhiteSpace(host) Then Return False
+        Try
+            Return Await Task.Run(Function()
+                                      Dim p As New System.Net.NetworkInformation.Ping()
+                                      Dim r = p.Send(host, 1200)
+                                      Return (r IsNot Nothing AndAlso r.Status = System.Net.NetworkInformation.IPStatus.Success)
+                                  End Function)
+        Catch
+            Return False
+        End Try
+    End Function
+
+    Private Sub SetIcon(pic As PictureBox, enabled As Boolean)
+        If pic Is Nothing Then Exit Sub
+        If pic.InvokeRequired Then
+            pic.Invoke(Sub() SetIcon(pic, enabled))
+            Return
+        End If
+        pic.Enabled = enabled
+        pic.Cursor = If(enabled, Cursors.Hand, Cursors.No)
+        ' Opcional visual:
+        ' pic.BackColor = If(enabled, SystemColors.Control, Color.LightGray)
+    End Sub
+
+
+    ' Actualiza TODOS los iconos según:
+    ' - _taskRunning
+    ' - TextBoxPuesto vacío
+    ' - Ping al host
+    Private Async Sub UpdateIconsForHostAsync()
+        ' 1) Si hay tarea en curso, todo deshabilitado
+        If _taskRunning Then
+            For Each pic In _actionIcons
+                SetIcon(pic, False)
+            Next
+            Exit Sub
+        End If
+
+        ' 2) Validar puesto
+        Dim host = If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")
+        If String.IsNullOrWhiteSpace(host) Then
+            For Each pic In _actionIcons
+                SetIcon(pic, False)
+            Next
+            Exit Sub
+        End If
+
+        ' 3) Evitar pings innecesarios si el host no cambió
+        Dim pingOk As Boolean
+        If _lastPingHost IsNot Nothing AndAlso String.Equals(_lastPingHost, host, StringComparison.OrdinalIgnoreCase) AndAlso _lastPingResult.HasValue Then
+            pingOk = _lastPingResult.Value
+        Else
+            ' Hacemos ping asíncrono
+            AppendInfo($"Comprobando disponibilidad de {host} (ping)…")
+            pingOk = Await HostDisponibleAsync(host)
+            _lastPingHost = host
+            _lastPingResult = pingOk
+            If pingOk Then
+                AppendInfo($"Host {host} responde ping.")
+            Else
+                AppendInfo($"⚠ Host {host} NO responde ping.")
+            End If
+        End If
+
+        ' 4) Habilitar/Deshabilitar todos los iconos en función del ping
+        For Each pic In _actionIcons
+            SetIcon(pic, pingOk)
+        Next
+    End Sub
+
+
 
     ' Bloquear caracteres inválidos en Puesto (solo letras/números, sin símbolos)
     Private Sub TextBoxPuesto_KeyPress(sender As Object, e As KeyPressEventArgs) Handles TextBoxPuesto.KeyPress
@@ -1268,8 +1530,8 @@ Public Class Form1
 
             ' --- Última masterización: \\<puesto>\c$\Program Files[\(x86\)]\Sequencer\<puesto>.dat ---
             Try
-                Dim ruta1 As String = "\" & puesto & "\c$\Program Files\Sequencer\" & puesto & ".dat"
-                Dim ruta2 As String = "\" & puesto & "\c$\Program Files (x86)\Sequencer\" & puesto & ".dat"
+                Dim ruta1 As String = "\\" & puesto & "\c$\Program Files\Sequencer\" & puesto & ".dat"
+                Dim ruta2 As String = "\\" & puesto & "\c$\Program Files (x86)\Sequencer\" & puesto & ".dat"
 
                 Dim rutaEncontrada As String = Nothing
                 If File.Exists(ruta1) Then
@@ -1289,8 +1551,17 @@ Public Class Form1
             End Try
 
             ' --- WMI al equipo remoto ---
-            Dim scope As New ManagementScope("\" & puesto & "\root\cimv2")
+
+            Dim wmiPath As String = "\\" & puesto & "\root\cimv2"
+            Dim options As New ConnectionOptions() With {
+            .Impersonation = ImpersonationLevel.Impersonate,
+            .Authentication = AuthenticationLevel.PacketPrivacy,
+            .EnablePrivileges = True,
+            .Timeout = TimeSpan.FromSeconds(5)
+}
+            Dim scope As New ManagementScope(wmiPath, options)
             scope.Connect()
+
             ' --- Detectar tipo de equipo (Notebook vs CPU) y, si es notebook, mostrar modelo ---
             Dim esNotebook As Boolean = False
             Dim tipoEquipoTexto As String = "Desconocido"
@@ -1452,16 +1723,20 @@ Public Class Form1
 
         Return datos
     End Function
+
+
     'Mostrar datos ventana Puesto
     Private Sub MostrarInfoEnVentana(puesto As String,
                                  datos As Dictionary(Of String, Tuple(Of String, Integer)),
                                  txtLegajo As TextBox)
 
+        '===== Formulario =====
         Dim ventanaInfo As New Form()
         ventanaInfo.Text = "Información del puesto " & puesto
         ventanaInfo.Size = New Size(700, 500)
+        ventanaInfo.StartPosition = FormStartPosition.CenterScreen
 
-        ' Label resumen general
+        '===== Label resumen =====
         Dim lblResumen As New Label() With {
         .Dock = DockStyle.Top,
         .Height = 50,
@@ -1469,34 +1744,41 @@ Public Class Form1
         .TextAlign = ContentAlignment.MiddleCenter
     }
 
-        ' Crear ListView
+        '===== ListView =====
         Dim lvInfo As New ListView() With {
         .Dock = DockStyle.Fill,
         .View = View.Details,
         .FullRowSelect = True,
+        .MultiSelect = True,               ' <<<< permite Ctrl + Click
         .GridLines = True,
+        .HideSelection = False,
         .SmallImageList = New ImageList()
     }
 
-        ' Íconos verde y rojo
+        ' Imágenes (ok, error)
         lvInfo.SmallImageList.Images.Add("ok", SystemIcons.Information)
         lvInfo.SmallImageList.Images.Add("fail", SystemIcons.Error)
-        ' Definir columnas
+
+        ' Columnas
         lvInfo.Columns.Add("Dato", 200, HorizontalAlignment.Left)
         lvInfo.Columns.Add("Valor", 450, HorizontalAlignment.Left)
-        ' Determinar si hay problemas
+
+        '===== Cargar datos =====
         Dim hayProblemas As Boolean = False
-        ' Cargar datos
+
         For Each kvp In datos
             Dim item As New ListViewItem(kvp.Key)
             item.SubItems.Add(kvp.Value.Item1)
+
             If kvp.Value.Item2 >= 0 Then
                 item.ImageIndex = kvp.Value.Item2
                 If kvp.Value.Item2 = 1 Then hayProblemas = True
             End If
+
             lvInfo.Items.Add(item)
         Next
-        ' Resumen general
+
+        '===== Resumen =====
         If hayProblemas Then
             lblResumen.Text = "Equipo con problemas detectados"
             lblResumen.ForeColor = Color.Red
@@ -1504,18 +1786,85 @@ Public Class Form1
             lblResumen.Text = "Equipo en buen estado"
             lblResumen.ForeColor = Color.Green
         End If
-        ' Botón cerrar
-        Dim btnCerrar As New Button() With {
-        .Text = "Cerrar",
+
+
+        '===== PANEL INFERIOR (Cerrar + Copiar + Avanzado) =====
+        Dim pnlBotones As New Panel() With {
+        .Height = 45,
         .Dock = DockStyle.Bottom
     }
+
+
+        '----- Botón COPIAR -----
+        Dim btnCopiar As New Button() With {
+        .Text = "COPIAR",
+        .Width = 100,
+        .Height = 30,
+        .Left = 10,
+        .Top = 7
+    }
+        AddHandler btnCopiar.Click,
+        Sub()
+            Dim sb As New System.Text.StringBuilder()
+
+            ' Si hay selección → copiar solo lo seleccionado
+            If lvInfo.SelectedItems.Count > 0 Then
+                For Each it As ListViewItem In lvInfo.SelectedItems
+                    sb.AppendLine(it.Text & ": " & it.SubItems(1).Text)
+                Next
+            Else
+                ' Si no hay selección → copiar todo
+                For Each it As ListViewItem In lvInfo.Items
+                    sb.AppendLine(it.Text & ": " & it.SubItems(1).Text)
+                Next
+            End If
+
+            Clipboard.SetText(sb.ToString())
+            MsgBox("Información copiada al portapapeles.", vbInformation)
+        End Sub
+
+
+
+        '----- Botón AVANZADO (estará abajo a la derecha) -----
+        Dim btnAvanzado As New Button() With {
+        .Text = "AVANZADO",
+        .Width = 120,
+        .Height = 30,
+        .Left = 120,
+        .Top = 7
+    }
+
+        AddHandler btnAvanzado.Click,
+        Sub()
+            Dim win As New VentanaAvanzada(puesto)
+            win.Show()       ' <<<<< No modal
+        End Sub
+
+
+
+        '----- Botón CERRAR -----
+        Dim btnCerrar As New Button() With {
+        .Text = "Cerrar",
+        .Width = 100,
+        .Height = 30,
+        .Anchor = AnchorStyles.Right,
+        .Left = ventanaInfo.ClientSize.Width - 120,
+        .Top = 7
+    }
         AddHandler btnCerrar.Click, Sub() ventanaInfo.Close()
-        ' Agregar controles al formulario
+
+
+        ' Agregar botones al panel
+        pnlBotones.Controls.Add(btnCopiar)
+        pnlBotones.Controls.Add(btnAvanzado)
+        pnlBotones.Controls.Add(btnCerrar)
+
+        '===== Agregar controles al formulario =====
         ventanaInfo.Controls.Add(lvInfo)
         ventanaInfo.Controls.Add(lblResumen)
-        ventanaInfo.Controls.Add(btnCerrar)
-        ' Mostrar ventana
-        ventanaInfo.Show()
+        ventanaInfo.Controls.Add(pnlBotones)
+
+        ventanaInfo.Show()   ' <<<<<< NO MODAL
     End Sub
 
 
@@ -1534,7 +1883,7 @@ Public Class Form1
                 Try
                     ' Construimos la casilla con prefijo para mostrar y para la ruta UNC
                     Dim casillaConPrefijo As String = "CRRO" & casillaIngresada.ToUpper()
-                    Dim rutaCasilla As String = "\" & servidorCompleto & "\Notes$\" & casillaConPrefijo
+                    Dim rutaCasilla As String = "\\" & servidorCompleto & "\Notes$\" & casillaConPrefijo
 
                     If Directory.Exists(rutaCasilla) Then
                         ' Visual: mostrar CRROxxxxx en el Label
@@ -1658,13 +2007,397 @@ Public Class Form1
 
         ' Mostrar en el TextBox de info general
         TextBoxInfoGeneral.Text = infoCompleta
-    End Sub MySub()
-
-End Sub
+    End Sub
 
 
+    '##############################
+    '  CLICK DEL ICONO (Pic365)
+    '##############################
+    Private Async Sub Pic365_Click(sender As Object, e As EventArgs) Handles Pic365.Click
+        If _taskRunning OrElse _repairRunning Then
+            AppendInfo("⚠ Ya hay una tarea en curso. Esperá a que finalice.")
+            Return
+        End If
+
+        Dim host As String = If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")
+        If String.IsNullOrWhiteSpace(host) Then
+            AppendInfo("⚠ Ingresá un puesto válido en TextBoxPuesto.")
+            If TextBoxPuesto IsNot Nothing Then TextBoxPuesto.Focus()
+            Return
+        End If
+
+        If Not Await HostDisponibleAsync(host) Then
+            AppendInfo($"⚠ El host {host} NO responde ping. Acción bloqueada.")
+            UpdateIconsForHostAsync()
+            Return
+        End If
+
+        Try
+            _taskRunning = True
+            _repairRunning = True
+            UpdateIconsForHostAsync()   ' deshabilita TODOS los Pic%
+
+            ClearInfo()
+            SetProgressMarquee(False)
+            SetProgress(0)
+            AppendInfo($"Iniciando verificación y reparación en {host}…")
+
+            Await RepararOfficeRemotoAsync(host)
+
+        Finally
+            _repairRunning = False
+            _taskRunning = False
+            UpdateIconsForHostAsync()
+        End Try
+    End Sub
 
 
+    '##############################
+    '  CERRAR PROCESOS OFFICE (REMOTO)
+    '##############################
+    Private Sub CerrarProcesosOfficeRemoto(scope As ManagementScope)
+        AppendInfo("Cerrando procesos de Office…")
+
+        ' Lista de procesos Office/Teams comunes (clásicos)
+        Dim nombres() As String = {
+        "WINWORD.EXE", "EXCEL.EXE", "OUTLOOK.EXE", "POWERPNT.EXE",
+        "ONENOTE.EXE", "MSACCESS.EXE", "VISIO.EXE",
+        "LYNC.EXE", "TEAMS.EXE", "MSOSYNC.EXE", "OSPPsvc.EXE"
+    }
+
+        ' Construir WHERE Name='A' OR Name='B' …
+        Dim where As New StringBuilder()
+        For i = 0 To nombres.Length - 1
+            If i > 0 Then where.Append(" OR ")
+            where.Append("Name='").Append(nombres(i)).Append("'")
+        Next
+
+        Dim query As String = "SELECT Name, ProcessId FROM Win32_Process WHERE " & where.ToString()
+
+        Using search As New ManagementObjectSearcher(scope, New ObjectQuery(query))
+            Dim foundAny As Boolean = False
+            For Each proc As ManagementObject In search.Get()
+                foundAny = True
+                Dim pname As String = CStr(proc("Name"))
+                Dim pid As Integer = CInt(proc("ProcessId"))
+                AppendInfo($"  · {pname} (PID {pid}) encontrado → Terminando…")
+                Try
+                    Dim ret = proc.InvokeMethod("Terminate", Nothing)
+                    AppendInfo($"    ✓ Terminate retorno={ret}")
+                Catch ex As Exception
+                    AppendInfo("    ✗ Error al terminar: " & ex.Message)
+                End Try
+            Next
+            If Not foundAny Then
+                AppendInfo("  · No había procesos de Office abiertos.")
+            End If
+        End Using
+
+        AppendInfo("Procesos de Office cerrados.")
+    End Sub
+
+    '##############################
+    '  LOCALIZAR C2R Y LANZAR REPARACIÓN
+    '##############################
+    ' Devuelve el PID del cmd.exe que lanza OfficeClickToRun
+    Private Function RepararOfficeQuick(scope As ManagementScope, equipo As String) As Integer
+        AppendInfo("Buscando OfficeClickToRun.exe…")
+
+        Dim rutas As String() = {
+        "C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
+        "C:\Program Files (x86)\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
+        "C:\Program Files\Microsoft Office 15\ClientX64\OfficeClickToRun.exe",
+        "C:\Program Files\Microsoft Office 15\ClientX86\OfficeClickToRun.exe"
+    }
+
+        Dim rutaC2R As String = Nothing
+        For Each p In rutas
+            AppendInfo("  · Probando: " & p)
+            If RemoteFileExists(equipo, p) Then
+                rutaC2R = p : Exit For
+            End If
+        Next
+
+        If String.IsNullOrEmpty(rutaC2R) Then
+            AppendInfo("  ✗ No se encontró OfficeClickToRun.exe. Detenido.")
+            Throw New FileNotFoundException("OfficeClickToRun.exe no encontrado en rutas conocidas.")
+        End If
+        AppendInfo("  ✓ Encontrado: " & rutaC2R)
+
+        Dim plataforma As String = If(rutaC2R.Contains("(x86)"), "x86", "x64")
+        AppendInfo("Plataforma detectada: " & plataforma)
+
+        Dim cmd As String =
+        "cmd.exe /c """ & rutaC2R & """ " &
+        "scenario=repair platform=" & plataforma & " culture=es-es " &
+        "forceappshutdown=true RepairType=QuickRepair DisplayLevel=false"
+
+        AppendInfo("Lanzando reparación silenciosa…")
+        Dim procClass As New ManagementClass(scope, New ManagementPath("Win32_Process"), Nothing)
+        Using inParams = procClass.GetMethodParameters("Create")
+            inParams("CommandLine") = cmd
+            Using outParams = procClass.InvokeMethod("Create", inParams, Nothing)
+                Dim ret = Convert.ToInt32(outParams("ReturnValue"))
+                Dim pid = Convert.ToInt32(outParams("ProcessId"))
+                If ret = 0 Then
+                    AppendInfo("  ✓ Reparación iniciada. PID=" & pid)
+                    Return pid
+                Else
+                    AppendInfo("  ✗ No se pudo iniciar (ReturnValue=" & ret & ").")
+                    Throw New ApplicationException("Win32_Process.Create devolvió " & ret)
+                End If
+            End Using
+        End Using
+    End Function
+
+    '##############################
+    '  FLUJO COMPLETO ASÍNCRONO
+    '##############################
+    Private Async Function RepararOfficeRemotoAsync(equipo As String) As Task
+        Await Task.Run(Sub()
+                           AppendInfo($"=== Reparación Office en {equipo} ===")
+                           Try
+                               SetProgressMarquee(False)
+                               SetProgress(0)
+                               AppendInfo("Conectando WMI (root\cimv2)…")
+                               Dim scope = WmiConnect(equipo, "root\cimv2")
+                               If scope Is Nothing OrElse Not scope.IsConnected Then
+                                   AppendInfo("✗ WMI no disponible. Detenido.")
+                                   SetProgress(0)
+                                   Exit Sub
+                               End If
+                               AppendInfo("✓ WMI OK.")
+                               SetProgress(10)
+
+                               ' 1) Cerrar procesos Office
+                               CerrarProcesosOfficeRemoto(scope)
+                               SetProgress(35)
+
+                               ' 2) Lanzar reparación y obtener PID
+                               Dim pid As Integer = RepararOfficeQuick(scope, equipo)
+                               SetProgress(60)
+
+                               ' 3) Esperar a que termine realmente ese PID
+                               AppendInfo("Esperando a que termine la reparación…")
+                               SetProgressMarquee(True)    ' estilo "en progreso"
+                               Dim ok As Boolean = WaitRemoteProcessExit(scope, pid, timeoutMinutes:=120, pollMs:=3000, logEverySec:=20)
+                               SetProgressMarquee(False)
+
+                               If ok Then
+                                   SetProgress(100)
+                                   AppendInfo("✓ Reparación completada correctamente.")
+                               Else
+                                   SetProgress(0)
+                                   AppendInfo("✗ Reparación no completada (timeout).")
+                               End If
+
+                               AppendInfo($"=== Fin proceso en {equipo} ===")
+                           Catch ex As Exception
+                               AppendInfo("✗ Error: " & ex.Message)
+                               SetProgressMarquee(False)
+                               SetProgress(0)
+                           End Try
+                       End Sub)
+    End Function
+
+    '##############################
+    ' CERRAR CALCULADORA (REMOTO)
+    '##############################
+    Private Sub CerrarCalculadoraRemoto(scope As ManagementScope)
+        AppendInfo("Cerrando Calculadora si está abierta…")
+        ' En Windows 10/11 el proceso suele ser Calculator.exe (UWP hosteado).
+        Dim query As String = "SELECT Name, ProcessId FROM Win32_Process WHERE Name='Calculator.exe'"
+        Using search As New ManagementObjectSearcher(scope, New ObjectQuery(query))
+            Dim foundAny As Boolean = False
+            For Each proc As ManagementObject In search.Get()
+                foundAny = True
+                Dim pname As String = CStr(proc("Name"))
+                Dim pid As Integer = CInt(proc("ProcessId"))
+                AppendInfo($"  · {pname} (PID {pid}) → Terminando…")
+                Try
+                    Dim ret = proc.InvokeMethod("Terminate", Nothing)
+                    AppendInfo($"    ✓ Terminate retorno={ret}")
+                Catch ex As Exception
+                    AppendInfo("    ✗ Error al terminar: " & ex.Message)
+                End Try
+            Next
+            If Not foundAny Then
+                AppendInfo("  · Calculadora no estaba abierta.")
+            End If
+        End Using
+        AppendInfo("Listo: Calculadora cerrada.")
+    End Sub
+
+    '#############################################################################################
+    ' REINSTALAR CALCULADORA EN REMOTO (APPX + DEPENDENCIAS)
+    ' - Copia 3 paquetes a \\equipo\C$\Temp\
+    ' - Ejecuta Invoke-Command con Add-AppxPackage (3 veces)
+    ' - Espera a que termine el PowerShell local (cierra cuando el remoto termina)
+    '#############################################################################################
+    Private Async Function RepararCalculadoraRemotoAsync(equipo As String,
+                                                     rutaXaml24 As String,
+                                                     rutaVCLibs140 As String,
+                                                     rutaCalcBundle As String) As Task
+        Await Task.Run(Sub()
+                           AppendInfo($"=== Reparación Calculadora en {equipo} ===")
+                           Try
+                               ' [0] Conexión WMI para cierre de app (y reuso futuro)
+                               AppendInfo("Conectando WMI (root\cimv2)…")
+                               Dim scope = WmiConnect(equipo, "root\cimv2")
+                               If scope Is Nothing OrElse Not scope.IsConnected Then
+                                   AppendInfo("✗ WMI no disponible. Detenido.")
+                                   Exit Sub
+                               End If
+                               AppendInfo("✓ WMI OK.")
+                               SetProgress(10)
+
+                               ' [1] Cerrar Calculadora remota si está abierta
+                               CerrarCalculadoraRemoto(scope)
+                               SetProgress(25)
+
+                               ' [2] Validar orígenes
+                               AppendInfo("Validando paquetes locales…")
+                               If Not File.Exists(rutaXaml24) Then AppendInfo("✗ Falta Xaml 2.4") : Throw New FileNotFoundException(rutaXaml24)
+                               If Not File.Exists(rutaVCLibs140) Then AppendInfo("✗ Falta VCLibs 140") : Throw New FileNotFoundException(rutaVCLibs140)
+                               If Not File.Exists(rutaCalcBundle) Then AppendInfo("✗ Falta Calculadora AppxBundle") : Throw New FileNotFoundException(rutaCalcBundle)
+                               AppendInfo("✓ Paquetes OK.")
+                               SetProgress(35)
+
+                               ' [3] Copiar a remoto
+                               Dim uncTemp = "\\" & equipo & "\C$\Temp\"
+                               AppendInfo("Asegurando carpeta remota C:\Temp …")
+                               If Not Directory.Exists(uncTemp) Then
+                                   Try
+                                       Directory.CreateDirectory(uncTemp)
+                                       AppendInfo("  ✓ C:\Temp creado.")
+                                   Catch
+                                       If Not Directory.Exists(uncTemp) Then Throw
+                                   End Try
+                               Else
+                                   AppendInfo("  ✓ C:\Temp ya existe.")
+                               End If
+
+                               AppendInfo("Copiando paquetes al remoto …")
+                               File.Copy(rutaXaml24, Path.Combine(uncTemp, Path.GetFileName(rutaXaml24)), True)
+                               AppendInfo("  · Xaml 2.4 copiado.")
+                               File.Copy(rutaVCLibs140, Path.Combine(uncTemp, Path.GetFileName(rutaVCLibs140)), True)
+                               AppendInfo("  · VCLibs 140 copiado.")
+                               File.Copy(rutaCalcBundle, Path.Combine(uncTemp, Path.GetFileName(rutaCalcBundle)), True)
+                               AppendInfo("  · Calculadora bundle copiado.")
+                               SetProgress(55)
+
+                               ' [4] Script PS temporal local
+                               AppendInfo("Preparando script PowerShell remoto …")
+                               Dim psScript As String =
+                "param($xaml,$vclibs,$bundle)
+                $ErrorActionPreference = 'Stop'
+                try {
+                $app = Get-AppxPackage -Name Microsoft.WindowsCalculator -AllUsers -ErrorAction SilentlyContinue
+                if ($app) { Remove-AppxPackage -Package $app.PackageFullName -AllUsers }
+                    } catch { }
+
+                Add-AppxPackage -Path $xaml
+                Add-AppxPackage -Path $vclibs
+                Add-AppxPackage -Path $bundle
+
+                    Write-Host 'OK'"
+
+                               Dim psFile As String = Path.Combine(Path.GetTempPath(), "repara_calc.ps1")
+                               File.WriteAllText(psFile, psScript, Encoding.UTF8)
+                               AppendInfo("  ✓ Script temporal: " & psFile)
+                               SetProgress(65)
+
+                               ' [5] Ejecutar Invoke-Command al remoto
+                               AppendInfo("Invocando Add-AppxPackage en el equipo remoto …")
+                               Dim xamlRemote = "C:\Temp\" & Path.GetFileName(rutaXaml24)
+                               Dim vclRemote = "C:\Temp\" & Path.GetFileName(rutaVCLibs140)
+                               Dim calRemote = "C:\Temp\" & Path.GetFileName(rutaCalcBundle)
+
+                               Dim psi As New ProcessStartInfo("powershell.exe") With {
+                .UseShellExecute = False,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .CreateNoWindow = True
+            }
+                               psi.Arguments =
+                "-NoProfile -ExecutionPolicy Bypass " &
+                "-Command ""Invoke-Command -ComputerName '" & equipo.Replace("'", "''") &
+                "' -FilePath '" & psFile.Replace("'", "''") &
+                "' -ArgumentList '" & xamlRemote.Replace("'", "''") & "','" &
+                                   vclRemote.Replace("'", "''") & "','" &
+                                   calRemote.Replace("'", "''") & "'"""
+
+                               SetProgressMarquee(True)
+                               Using p = Process.Start(psi)
+                                   Dim outS = p.StandardOutput.ReadToEnd()
+                                   Dim errS = p.StandardError.ReadToEnd()
+                                   p.WaitForExit()
+                                   SetProgressMarquee(False)
+
+                                   AppendInfo("Resultado PowerShell:")
+                                   If outS.Length > 0 Then AppendInfo("  · Out: " & outS.Trim())
+                                   If errS.Length > 0 Then AppendInfo("  · Err: " & errS.Trim())
+
+                                   If p.ExitCode = 0 AndAlso outS.Contains("OK") Then
+                                       SetProgress(100)
+                                       AppendInfo("✓ Calculadora reinstalada correctamente.")
+                                   Else
+                                       SetProgress(0)
+                                       AppendInfo("✗ Error de reinstalación. ExitCode=" & p.ExitCode)
+                                   End If
+                               End Using
+
+                               AppendInfo($"=== Fin proceso en {equipo} ===")
+
+                           Catch ex As Exception
+                               SetProgressMarquee(False)
+                               SetProgress(0)
+                               AppendInfo("✗ Error Calculadora: " & ex.Message)
+                           End Try
+                       End Sub)
+    End Function
+
+    Private Async Sub PicCalc_Click(sender As Object, e As EventArgs) Handles PicCalc.Click
+        If _taskRunning OrElse _repairRunning Then
+            AppendInfo("⚠ Ya hay una tarea en curso. Esperá a que finalice.")
+            Return
+        End If
+
+        Dim host As String = If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")
+        If String.IsNullOrWhiteSpace(host) Then
+            AppendInfo("⚠ Ingresá un puesto válido en TextBoxPuesto.")
+            If TextBoxPuesto IsNot Nothing Then TextBoxPuesto.Focus()
+            Return
+        End If
+
+        If Not Await HostDisponibleAsync(host) Then
+            AppendInfo($"⚠ El host {host} NO responde ping. Acción bloqueada.")
+            UpdateIconsForHostAsync()
+            Return
+        End If
+
+        ' Rutas locales (junto al EXE) — ajustá si las tenés en otra carpeta
+        Dim basePath = Application.StartupPath
+        Dim xaml = Path.Combine(basePath, "Microsoft.UI.Xaml.2.4_2.42007.9001.0_x64__8wekyb3d8bbwe.Appx")
+        Dim vcl = Path.Combine(basePath, "Microsoft.VCLibs.140.00_14.0.33519.0_x64__8wekyb3d8bbwe.Appx")
+        Dim calcB = Path.Combine(basePath, "Microsoft.WindowsCalculator_2020.2103.8.0_neutral_~_8wekyb3d8bbwe.AppxBundle")
+
+        Try
+            _taskRunning = True
+            UpdateIconsForHostAsync() ' deshabilita todos los Pic%
+
+            ClearInfo()
+            SetProgressMarquee(False)
+            SetProgress(0)
+            AppendInfo($"Iniciando reinstalación de Calculadora en {host}…")
+
+            Await RepararCalculadoraRemotoAsync(host, xaml, vcl, calcB)
+
+        Finally
+            _taskRunning = False
+            UpdateIconsForHostAsync()
+        End Try
+    End Sub
 
 
 
@@ -1714,6 +2447,15 @@ End Sub
             End If
         End If
     End Sub
+
+
+    Private Sub BtnAvanzado_Click(sender As Object, e As EventArgs) Handles BtnAvanzado.Click
+        Dim equipo = TextBoxPuesto.Text.Trim()
+        Dim win As New VentanaAvanzada(equipo)
+        win.Show()    ' No modal
+    End Sub
+
+
 
     Private Sub BtnLimpiar_Click(sender As Object, e As EventArgs) Handles BtnLimpiar.Click
         ResetApp()

@@ -1,5 +1,3 @@
-C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.Form1.resources
-C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.Resources.resources
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.vbproj.GenerateResource.cache
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.vbproj.CoreCompileInputs.cache
 C:\Users\e98775\source\repos\NuevaApp\bin\Debug\PUSH.exe.config
@@ -10,3 +8,6 @@ C:\Users\e98775\source\repos\NuevaApp\obj\Debug\PUSH.exe
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\PUSH.xml
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\PUSH.pdb
 C:\Users\e98775\source\repos\NuevaApp\obj\Debug\NuevaApp.vbproj.AssemblyReference.cache
+C:\Users\e98775\source\repos\NuevaApp\obj\Debug\ProyectoPUSH.PUSH.resources
+C:\Users\e98775\source\repos\NuevaApp\obj\Debug\ProyectoPUSH.Resources.resources
+C:\Users\e98775\source\repos\NuevaApp\obj\Debug\ProyectoPUSH.VentanaAvanzada.resources
