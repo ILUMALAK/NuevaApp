@@ -956,7 +956,7 @@ Public Class Form1
 
         If servidorActivo <> "" Then
             Dim servidorCompleto As String = servidorActivo & "SC" & sucursalFormateada
-            Dim rutaServidor As String = "\\" & servidorCompleto
+            Dim rutaServidor As String = "\" & servidorCompleto & "\"
 
             LabelEstadoServidor.Text = servidorCompleto
             LabelEstadoServidor.ForeColor = Color.Green
@@ -1042,7 +1042,7 @@ Public Class Form1
             ' Validamos que el puesto responda al ping
             If HacerPing(puestoActual) Then
                 Try
-                    Dim rutaBase As String = "\\" & puestoActual & "\c$\Users\"
+                    Dim rutaBase As String = "\" & puestoActual & "\c$\Users\"
                     Dim legajoUpper As String = legajoActual.ToUpper()
 
                     ' Buscar variantes con sufijo .SUC#
@@ -1268,8 +1268,8 @@ Public Class Form1
 
             ' --- Última masterización: \\<puesto>\c$\Program Files[\(x86\)]\Sequencer\<puesto>.dat ---
             Try
-                Dim ruta1 As String = "\\" & puesto & "\c$\Program Files\Sequencer\" & puesto & ".dat"
-                Dim ruta2 As String = "\\" & puesto & "\c$\Program Files (x86)\Sequencer\" & puesto & ".dat"
+                Dim ruta1 As String = "\" & puesto & "\c$\Program Files\Sequencer\" & puesto & ".dat"
+                Dim ruta2 As String = "\" & puesto & "\c$\Program Files (x86)\Sequencer\" & puesto & ".dat"
 
                 Dim rutaEncontrada As String = Nothing
                 If File.Exists(ruta1) Then
@@ -1279,7 +1279,7 @@ Public Class Form1
                 End If
 
                 If Not String.IsNullOrEmpty(rutaEncontrada) Then
-                    Dim fecha As DateTime = File.GetCreationTime(rutaEncontrada)
+                    Dim fecha As DateTime = File.GetLastWriteTime(rutaEncontrada)
                     datos("Última masterización") = Tuple.Create(fecha.ToString("dd/MM/yyyy"), 0) ' 0 = OK/verde
                 Else
                     datos("Última masterización") = Tuple.Create("Puesto no realizó masterización.", 1) ' 1 = alerta/rojo
@@ -1289,7 +1289,7 @@ Public Class Form1
             End Try
 
             ' --- WMI al equipo remoto ---
-            Dim scope As New ManagementScope("\\" & puesto & "\root\cimv2")
+            Dim scope As New ManagementScope("\" & puesto & "\root\cimv2")
             scope.Connect()
             ' --- Detectar tipo de equipo (Notebook vs CPU) y, si es notebook, mostrar modelo ---
             Dim esNotebook As Boolean = False
@@ -1534,7 +1534,7 @@ Public Class Form1
                 Try
                     ' Construimos la casilla con prefijo para mostrar y para la ruta UNC
                     Dim casillaConPrefijo As String = "CRRO" & casillaIngresada.ToUpper()
-                    Dim rutaCasilla As String = "\\" & servidorCompleto & "\Notes$\" & casillaConPrefijo
+                    Dim rutaCasilla As String = "\" & servidorCompleto & "\Notes$\" & casillaConPrefijo
 
                     If Directory.Exists(rutaCasilla) Then
                         ' Visual: mostrar CRROxxxxx en el Label
@@ -1658,7 +1658,9 @@ Public Class Form1
 
         ' Mostrar en el TextBox de info general
         TextBoxInfoGeneral.Text = infoCompleta
-    End Sub
+    End Sub MySub()
+
+End Sub
 
 
 
@@ -1803,4 +1805,8 @@ Public Class Form1
             Application.Exit()
         End If
     End Sub
+
+
+
+
 End Class
