@@ -1,0 +1,26 @@
+
+## Build / IDE
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Paquetes y artefactos
+packages/
+*.nupkg
+*.snupkg
+*.zip
+*.log
+
+## Config locales
+*.DotSettings.user
+*.csproj.user
+*.vbproj.user
+*.vcxproj.user
+
+## Sistema
+Thumbs.db
+Desktop.ini

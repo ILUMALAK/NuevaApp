@@ -26,14 +26,9 @@ Partial Class PUSH
     Private Sub InitializeComponent()
         Me.components = New System.ComponentModel.Container()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(PUSH))
-        Me.Button1 = New System.Windows.Forms.Button()
         Me.BtnSalir = New System.Windows.Forms.Button()
-        Me.Button8 = New System.Windows.Forms.Button()
         Me.BtnLimpiar = New System.Windows.Forms.Button()
-        Me.Button7 = New System.Windows.Forms.Button()
-        Me.Button6 = New System.Windows.Forms.Button()
         Me.BtnActualizar = New System.Windows.Forms.Button()
-        Me.Button5 = New System.Windows.Forms.Button()
         Me.LabelEstadoCasilla = New System.Windows.Forms.Label()
         Me.LabelEstadoPuesto = New System.Windows.Forms.Label()
         Me.LabelEstadoLegajo = New System.Windows.Forms.Label()
@@ -63,15 +58,6 @@ Partial Class PUSH
         CType(Me.PicCalc, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.SuspendLayout()
         '
-        'Button1
-        '
-        Me.Button1.Location = New System.Drawing.Point(21, 283)
-        Me.Button1.Name = "Button1"
-        Me.Button1.Size = New System.Drawing.Size(123, 42)
-        Me.Button1.TabIndex = 11
-        Me.Button1.Text = "-"
-        Me.Button1.UseVisualStyleBackColor = True
-        '
         'BtnSalir
         '
         Me.BtnSalir.Location = New System.Drawing.Point(958, 388)
@@ -80,16 +66,6 @@ Partial Class PUSH
         Me.BtnSalir.TabIndex = 4
         Me.BtnSalir.Text = "SALIR"
         Me.BtnSalir.UseVisualStyleBackColor = True
-        '
-        'Button8
-        '
-        Me.Button8.Enabled = False
-        Me.Button8.Location = New System.Drawing.Point(391, 217)
-        Me.Button8.Name = "Button8"
-        Me.Button8.Size = New System.Drawing.Size(76, 42)
-        Me.Button8.TabIndex = 8
-        Me.Button8.Text = "-"
-        Me.Button8.UseVisualStyleBackColor = True
         '
         'BtnLimpiar
         '
@@ -100,26 +76,6 @@ Partial Class PUSH
         Me.BtnLimpiar.Text = "LIMPIAR"
         Me.BtnLimpiar.UseVisualStyleBackColor = True
         '
-        'Button7
-        '
-        Me.Button7.Enabled = False
-        Me.Button7.Location = New System.Drawing.Point(273, 217)
-        Me.Button7.Name = "Button7"
-        Me.Button7.Size = New System.Drawing.Size(76, 42)
-        Me.Button7.TabIndex = 7
-        Me.Button7.Text = "-"
-        Me.Button7.UseVisualStyleBackColor = True
-        '
-        'Button6
-        '
-        Me.Button6.Enabled = False
-        Me.Button6.Location = New System.Drawing.Point(161, 217)
-        Me.Button6.Name = "Button6"
-        Me.Button6.Size = New System.Drawing.Size(76, 42)
-        Me.Button6.TabIndex = 6
-        Me.Button6.Text = "-"
-        Me.Button6.UseVisualStyleBackColor = True
-        '
         'BtnActualizar
         '
         Me.BtnActualizar.Location = New System.Drawing.Point(958, 262)
@@ -128,16 +84,6 @@ Partial Class PUSH
         Me.BtnActualizar.TabIndex = 1
         Me.BtnActualizar.Text = "ACTUALIZAR"
         Me.BtnActualizar.UseVisualStyleBackColor = True
-        '
-        'Button5
-        '
-        Me.Button5.Enabled = False
-        Me.Button5.Location = New System.Drawing.Point(38, 217)
-        Me.Button5.Name = "Button5"
-        Me.Button5.Size = New System.Drawing.Size(76, 42)
-        Me.Button5.TabIndex = 5
-        Me.Button5.Text = "-"
-        Me.Button5.UseVisualStyleBackColor = True
         '
         'LabelEstadoCasilla
         '
@@ -303,9 +249,9 @@ Partial Class PUSH
         'PicCalc
         '
         Me.PicCalc.Image = CType(resources.GetObject("PicCalc.Image"), System.Drawing.Image)
-        Me.PicCalc.Location = New System.Drawing.Point(391, 142)
+        Me.PicCalc.Location = New System.Drawing.Point(394, 137)
         Me.PicCalc.Name = "PicCalc"
-        Me.PicCalc.Size = New System.Drawing.Size(81, 69)
+        Me.PicCalc.Size = New System.Drawing.Size(89, 74)
         Me.PicCalc.SizeMode = System.Windows.Forms.PictureBoxSizeMode.CenterImage
         Me.PicCalc.TabIndex = 18
         Me.PicCalc.TabStop = False
@@ -350,13 +296,8 @@ Partial Class PUSH
         Me.Controls.Add(Me.Pic365)
         Me.Controls.Add(Me.PicNote)
         Me.Controls.Add(Me.BtnAvanzado)
-        Me.Controls.Add(Me.Button1)
-        Me.Controls.Add(Me.Button8)
         Me.Controls.Add(Me.BtnSalir)
-        Me.Controls.Add(Me.Button7)
         Me.Controls.Add(Me.Label1)
-        Me.Controls.Add(Me.Button6)
-        Me.Controls.Add(Me.Button5)
         Me.Controls.Add(Me.LabelEstadoCasilla)
         Me.Controls.Add(Me.BtnLimpiar)
         Me.Controls.Add(Me.ComboBoxSucursales)
@@ -397,14 +338,9 @@ Partial Class PUSH
     Friend WithEvents Label3 As Label
     Friend WithEvents Label2 As Label
     Friend WithEvents Label1 As Label
-    Friend WithEvents Button8 As Button
-    Friend WithEvents Button7 As Button
-    Friend WithEvents Button6 As Button
-    Friend WithEvents Button5 As Button
     Friend WithEvents BtnLimpiar As Button
     Friend WithEvents BtnActualizar As Button
     Friend WithEvents ToolTip1 As ToolTip
-    Friend WithEvents Button1 As Button
     Friend WithEvents BtnAvanzado As Button
     Friend WithEvents PicNote As PictureBox
     Friend WithEvents Pic365 As PictureBox

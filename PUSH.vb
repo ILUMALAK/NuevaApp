@@ -16,11 +16,15 @@ Public Class PUSH
     Private sucursalTipo As String = ""
     Private sucursalNombre As String = ""
     Private sucursalDependeDe As String = ""
-    Private _repairRunning As Boolean = False              ' evita ejecuciones concurrentes
-    Private _taskRunning As Boolean = False                ' bloquea todas las acciones si hay una en curso
-    Private _actionIcons() As PictureBox                   ' acá registramos todos los PictureBox de tareas
-    Private _lastPingHost As String = Nothing              ' para no spamear pings si no cambió el host
+    Private _repairRunning As Boolean = False                     ' evita ejecuciones concurrentes
+    Private _taskRunning As Boolean = False                       ' bloquea todas las acciones si hay una en curso
+    Private _actionIcons() As PictureBox                          ' acá registramos todos los PictureBox de tareas
+    Private _baseImages As New Dictionary(Of PictureBox, Image)   ' para no spamear pings si no cambió el host
+    Private _lastPingHost As String = Nothing
     Private _lastPingResult As Boolean? = Nothing
+
+
+
 
     'Carga
     Private Sub PUSH_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -58,17 +62,68 @@ Public Class PUSH
     End Sub
     ''Registracion de iconos
     Private Sub InitActionIcons()
-        ' Agregá acá TODOS los íconos que dependan del puesto
+        ' iconos que dependan del puesto
         _actionIcons = {Pic365, PicCalc} ''agregar demas pics
 
         ' Estado inicial
+        _baseImages.Clear()
         For Each pic In _actionIcons
             If pic IsNot Nothing Then
+                ' Guarda la imagen base de cada icono
+                If pic.Image IsNot Nothing Then
+                    _baseImages(pic) = CType(pic.Image.Clone(), Image)
+                Else
+                    _baseImages(pic) = Nothing
+                End If
                 pic.Enabled = False
                 pic.Cursor = Cursors.No
             End If
         Next
+
     End Sub
+
+    ''agregra cambio en iconos del sistema
+    Private Function ComposeWithBadge(baseImg As Image, enabled As Boolean) As Image
+        If baseImg Is Nothing Then Return Nothing
+
+        Dim bmp As New Bitmap(baseImg.Width, baseImg.Height, Imaging.PixelFormat.Format32bppArgb)
+        Using g As Graphics = Graphics.FromImage(bmp)
+            g.DrawImage(baseImg, 0, 0, baseImg.Width, baseImg.Height)
+
+            ' Tamaño y posición del badge
+            Dim badgeSize As Integer = CInt(Math.Max(16, Math.Min(baseImg.Width, baseImg.Height) * 0.35))
+            Dim padding As Integer = CInt(badgeSize * 0.15)
+            Dim x As Integer = baseImg.Width - badgeSize - padding
+            Dim y As Integer = baseImg.Height - badgeSize - padding
+            Dim badgeRect As New Rectangle(x, y, badgeSize, badgeSize)
+
+            ' Fondo circular
+            Dim bgColor As Color = If(enabled, Color.FromArgb(220, 46, 204, 113), Color.FromArgb(220, 231, 76, 60)) ' verde / rojo
+            Using b As New SolidBrush(bgColor)
+                g.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias
+                g.FillEllipse(b, badgeRect)
+            End Using
+
+            ' Borde blanco
+            Using p As New Pen(Color.White, Math.Max(2.0F, badgeSize * 0.08F))
+                g.DrawEllipse(p, badgeRect)
+            End Using
+
+            ' Símbolo: tilde (✓) o prohibido (⊘)
+            Dim glyph As String = If(enabled, "✓", "⊘")
+            Dim fontSize As Single = CSng(badgeSize * 0.6)
+            Using f As New Font("Segoe UI Symbol", fontSize, FontStyle.Bold, GraphicsUnit.Pixel)
+                Dim sf As New StringFormat() With {.Alignment = StringAlignment.Center, .LineAlignment = StringAlignment.Center}
+                Using textBrush As New SolidBrush(Color.White)
+                    g.DrawString(glyph, f, textBrush, RectangleF.op_Implicit(badgeRect), sf)
+                End Using
+            End Using
+        End Using
+
+        Return bmp
+    End Function
+
+
 
     ''agrega funcion PING
     Private Function HostDisponible(host As String) As Boolean
@@ -295,6 +350,7 @@ Public Class PUSH
     End Sub
     ' Diccionario local fijo con los datos importados del Excel
     Private DiccionarioSucursales As New Dictionary(Of String, Tuple(Of String, String, String)) From {
+     {"0001", Tuple.Create("CASA CENTRAL", "PLAZA DE MAYO.)- MITRE 326", "CC")},
      {"0007", Tuple.Create("SUC", "LAVALLE (CAP. FED.) - SDWAN", "7")},
      {"0009", Tuple.Create("SUC", "BULNES (EX ALMAGRO SUR) - SDWAN", "9")},
      {"0010", Tuple.Create("SUC", "ABASTO - SDWAN", "10")},
@@ -1355,14 +1411,15 @@ Public Class PUSH
     ' Evento cuando cambia el texto del TextBoxPuesto
     Private Sub TextBoxPuesto_TextChanged(sender As Object, e As EventArgs) Handles TextBoxPuesto.TextChanged
         If _suspendEvents Then Exit Sub
+
         Dim puestoActual As String = TextBoxPuesto.Text.Trim()
 
-        ' Normalizar  mayúsculas en pantalla
+        ' Normalizar MAYÚSCULAS
         Dim selPos As Integer = TextBoxPuesto.SelectionStart
         TextBoxPuesto.Text = TextBoxPuesto.Text.ToUpper()
         TextBoxPuesto.SelectionStart = selPos
 
-        ' Validar LONGITUD 
+        ' Validar LONGITUD EXACTA (11 caracteres)
         If puestoActual.Length <> 11 Then
             LabelEstadoPuesto.Text = "Esperando puesto válido..."
             LabelEstadoPuesto.ForeColor = Color.Gray
@@ -1374,13 +1431,41 @@ Public Class PUSH
             Exit Sub
         End If
 
-        ' Validar formato EXACTO:
-        ' Letra válida + 4 números + SC + 4 números
-        ' Letras válidas: A, B, C, L, M, X, O, H, G
-        Dim regexFormato As String = "^[ABCLMXOHG]\d{4}SC\d{4}$"
+        ' Regex: Letra + 4 números + (SC|CC) + 4 números
+        Dim regexFormato As String = "^(?i)[ABCLMXOHGPRZ]\d{4}(SC|CC)\d{4}$"
+        Dim esCasaCentral As Boolean = puestoActual.ToUpper().Contains("CC0001")
+        Dim sucursalSeleccionada As String = ""
+        If ComboBoxSucursales.SelectedItem IsNot Nothing Then
+            sucursalSeleccionada = ComboBoxSucursales.SelectedItem.ToString().Trim()
+        End If
+        ' =============================
+        '  EXCEPCIÓN CASA CENTRAL
+        '  Permitir HxxxxCC0001 SOLO si
+        '  la sucursal seleccionada es 0001
+        ' =============================
+        If esCasaCentral AndAlso sucursalSeleccionada = "0001" Then
+            ' No validar regex normal para este caso
+            ' Solo pedimos ping luego
+        Else
+            ' Caso normal → validar formato
+            If Not Regex.IsMatch(puestoActual.ToUpper(), regexFormato) Then
+                LabelEstadoPuesto.Text = "Formato de puesto inválido"
+                LabelEstadoPuesto.ForeColor = Color.Orange
+                LabelEstadoPuesto.Tag = Nothing
+                LabelEstadoPuesto.Cursor = Cursors.Default
+                LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Regular)
+                ToolTip1.SetToolTip(LabelEstadoPuesto, "")
+                ActualizarInfoGeneral()
+                Exit Sub
+            End If
+        End If
+        ' ================================
+        ' 🔍 NUEVO: detectar si es CASA CENTRAL
+        ' ================================
 
-        If Not Regex.IsMatch(puestoActual.ToUpper(), regexFormato) Then
-            LabelEstadoPuesto.Text = "Formato de puesto inválido"
+        ' EXCEPCIÓN: si es CC pero NO está seleccionada sucursal 0001 → no válido
+        If esCasaCentral AndAlso sucursalSeleccionada <> "0001" Then
+            LabelEstadoPuesto.Text = "Puesto CC pero sucursal distinta a 0001"
             LabelEstadoPuesto.ForeColor = Color.Orange
             LabelEstadoPuesto.Tag = Nothing
             LabelEstadoPuesto.Cursor = Cursors.Default
@@ -1390,17 +1475,23 @@ Public Class PUSH
             Exit Sub
         End If
 
-        ' formato es válido → hacemos ping
+        ' ================================
+        ' 🔌 Hacemos PING
+        ' ================================
         If HacerPing(puestoActual) Then
+
             Dim rutaServidor As String = "\\" & puestoActual & "\c$"
 
-            ' Mostrar SIEMPRE el puesto en mayúsculas
-            LabelEstadoPuesto.Text = puestoActual.ToUpper()
+            LabelEstadoPuesto.Text = If(esCasaCentral,
+                                    puestoActual & " (PUESTO CASA CENTRAL)",
+                                    puestoActual)
+
             LabelEstadoPuesto.ForeColor = Color.Green
             LabelEstadoPuesto.Tag = rutaServidor
             LabelEstadoPuesto.Cursor = Cursors.Hand
             LabelEstadoPuesto.Font = New Font(LabelEstadoPuesto.Font, FontStyle.Underline)
             ToolTip1.SetToolTip(LabelEstadoPuesto, rutaServidor)
+
         Else
             LabelEstadoPuesto.Text = "Puesto fuera de red"
             LabelEstadoPuesto.ForeColor = Color.Red
@@ -1410,13 +1501,26 @@ Public Class PUSH
             ToolTip1.SetToolTip(LabelEstadoPuesto, "")
         End If
 
-        ' 👉 Reset cache de ping y actualizar íconos de TODAS las acciones
+        ' Reset cache ping
         _lastPingHost = Nothing
         _lastPingResult = Nothing
 
+        ' Actualiza labels y habilitación de iconos
         ActualizarInfoGeneral()
+
+        ' ================================
+        ' 🔍 NUEVO: permitir activar botones en CC aun sin SMF
+        ' ================================
+        If esCasaCentral Then
+            ' fuerza habilitar iconos si el puesto responde ping
+            UpdateIconsForHostAsync()
+            Exit Sub
+        End If
+
+        ' Caso normal sucursal
         UpdateIconsForHostAsync()
     End Sub
+
     Private Async Function HostDisponibleAsync(host As String) As Task(Of Boolean)
         If String.IsNullOrWhiteSpace(host) Then Return False
         Try
@@ -1432,14 +1536,34 @@ Public Class PUSH
 
     Private Sub SetIcon(pic As PictureBox, enabled As Boolean)
         If pic Is Nothing Then Exit Sub
+
         If pic.InvokeRequired Then
             pic.Invoke(Sub() SetIcon(pic, enabled))
             Return
         End If
+
         pic.Enabled = enabled
         pic.Cursor = If(enabled, Cursors.Hand, Cursors.No)
-        ' Opcional visual:
-        ' pic.BackColor = If(enabled, SystemColors.Control, Color.LightGray)
+
+        ' Composición del badge sobre la imagen base
+        Dim baseImg As Image = Nothing
+        If _baseImages IsNot Nothing AndAlso _baseImages.ContainsKey(pic) Then
+            baseImg = _baseImages(pic)
+        Else
+            ' Si no estaba registrada, tomamos la actual como base y la guardamos
+            If pic.Image IsNot Nothing Then
+                baseImg = CType(pic.Image.Clone(), Image)
+                If Not _baseImages.ContainsKey(pic) Then _baseImages(pic) = baseImg
+            End If
+        End If
+
+        If baseImg IsNot Nothing Then
+            ' Liberar la imagen previa (si fue generada previamente) para evitar fugas
+            If pic.Image IsNot Nothing AndAlso Not Object.ReferenceEquals(pic.Image, baseImg) Then
+                pic.Image.Dispose()
+            End If
+            pic.Image = ComposeWithBadge(baseImg, enabled)
+        End If
     End Sub
 
 
@@ -2014,12 +2138,54 @@ Public Class PUSH
     '  CLICK DEL ICONO (Pic365)
     '##############################
     Private Async Sub Pic365_Click(sender As Object, e As EventArgs) Handles Pic365.Click
+        ' -------- Contexto para el mensaje ----------
+        Dim host As String = (If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")).ToUpperInvariant()
+        Dim sucursal As String = If(ComboBoxSucursales.SelectedItem IsNot Nothing, ComboBoxSucursales.SelectedItem.ToString().Trim(), "")
+        Dim servidorTexto As String = If(LabelEstadoServidor IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(LabelEstadoServidor.Text), LabelEstadoServidor.Text.Trim(), "")
+        Dim esCasaCentral As Boolean = host.Contains("CC0001") AndAlso sucursal = "0001"
+        Dim ccTag As String = If(esCasaCentral, " (CASA CENTRAL)", "")
+        Dim servidorInfo As String =
+        If(esCasaCentral,
+           "NO APLICA (CASA CENTRAL)",
+           If(Not String.IsNullOrWhiteSpace(servidorTexto) AndAlso Not servidorTexto.StartsWith("Ningún servidor", StringComparison.OrdinalIgnoreCase),
+              servidorTexto,
+              "No detectado"))
+
+        ' -------- Mensaje descriptivo ----------
+        Dim msg As New System.Text.StringBuilder()
+        msg.AppendLine("Va a ejecutar la VERIFICACIÓN y REPARACIÓN de Microsoft 365 (Click‑to‑Run) en el equipo indicado.")
+        msg.AppendLine()
+        msg.AppendLine($"• Equipo: {host}{ccTag}")
+        msg.AppendLine($"• Sucursal seleccionada: {sucursal}")
+        msg.AppendLine($"• Servidor: {servidorInfo}")
+        msg.AppendLine()
+        msg.AppendLine("La acción realizará los siguientes pasos en el equipo remoto:")
+        msg.AppendLine("  1) Cerrar procesos de Office/Teams detectados.")
+        msg.AppendLine("  2) Lanzar reparación silenciosa (QuickRepair) de C2R.")
+        msg.AppendLine("  3) Monitorear hasta finalizar (o timeout).")
+        msg.AppendLine()
+        msg.AppendLine("Durante la reparación, las aplicaciones de Office no podrán usarse en el equipo remoto.")
+        msg.AppendLine()
+        msg.AppendLine("¿Desea continuar?")
+
+        ' -------- Confirmación (No por defecto) ----------
+        Dim confirma As DialogResult = MessageBox.Show(
+        msg.ToString(),
+        "Confirmar reparación de Microsoft 365",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Question,
+        MessageBoxDefaultButton.Button2
+    )
+        If confirma <> DialogResult.Yes Then
+            AppendInfo("Operación cancelada por el usuario (Microsoft 365).")
+            Return
+        End If
+
+        ' --- Lógica existente ---
         If _taskRunning OrElse _repairRunning Then
             AppendInfo("⚠ Ya hay una tarea en curso. Esperá a que finalice.")
             Return
         End If
-
-        Dim host As String = If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")
         If String.IsNullOrWhiteSpace(host) Then
             AppendInfo("⚠ Ingresá un puesto válido en TextBoxPuesto.")
             If TextBoxPuesto IsNot Nothing Then TextBoxPuesto.Focus()
@@ -2031,12 +2197,10 @@ Public Class PUSH
             UpdateIconsForHostAsync()
             Return
         End If
-
         Try
             _taskRunning = True
             _repairRunning = True
-            UpdateIconsForHostAsync()   ' deshabilita TODOS los Pic%
-
+            UpdateIconsForHostAsync() ' deshabilita todos los Pic%
             ClearInfo()
             SetProgressMarquee(False)
             SetProgress(0)
@@ -2107,8 +2271,10 @@ Public Class PUSH
         "C:\Program Files\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
         "C:\Program Files (x86)\Common Files\Microsoft Shared\ClickToRun\OfficeClickToRun.exe",
         "C:\Program Files\Microsoft Office 15\ClientX64\OfficeClickToRun.exe",
-        "C:\Program Files\Microsoft Office 15\ClientX86\OfficeClickToRun.exe"
-    }
+        "C:\Program Files\Microsoft Office 15\ClientX86\OfficeClickToRun.exe",
+        "\\sfs01sc0085\InstWks\Software\Instala Office 365",
+        "\\sfs01sc0085\InstWks\Software\Instala Office 365 - SUC"
+        }
 
         Dim rutaC2R As String = Nothing
         For Each p In rutas
@@ -2201,6 +2367,86 @@ Public Class PUSH
     End Function
 
     '##############################
+    'CLICK DEL ICONO (Calc)
+    '##############################
+    Private Async Sub PicCalc_Click(sender As Object, e As EventArgs) Handles PicCalc.Click
+        ' -------- Contexto para el mensaje ----------
+        Dim host As String = (If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")).ToUpperInvariant()
+        Dim sucursal As String = If(ComboBoxSucursales.SelectedItem IsNot Nothing, ComboBoxSucursales.SelectedItem.ToString().Trim(), "")
+        Dim servidorTexto As String = If(LabelEstadoServidor IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(LabelEstadoServidor.Text), LabelEstadoServidor.Text.Trim(), "")
+        Dim esCasaCentral As Boolean = host.Contains("CC0001") AndAlso sucursal = "0001"
+        Dim ccTag As String = If(esCasaCentral, " (CASA CENTRAL)", "")
+        Dim servidorInfo As String =
+        If(esCasaCentral,
+           "NO APLICA (CASA CENTRAL)",
+           If(Not String.IsNullOrWhiteSpace(servidorTexto) AndAlso Not servidorTexto.StartsWith("Ningún servidor", StringComparison.OrdinalIgnoreCase),
+              servidorTexto,
+              "No detectado"))
+
+        ' -------- Mensaje descriptivo ----------
+        Dim msg As New System.Text.StringBuilder()
+        msg.AppendLine("Va a ejecutar la REINSTALACIÓN de la Calculadora en el equipo indicado.")
+        msg.AppendLine()
+        msg.AppendLine($"• Equipo: {host}{ccTag}")
+        msg.AppendLine($"• Sucursal seleccionada: {sucursal}")
+        msg.AppendLine($"• Servidor: {servidorInfo}")
+        msg.AppendLine()
+        msg.AppendLine("La acción realizará los siguientes pasos en el equipo remoto:")
+        msg.AppendLine("  1) Cerrar la Calculadora si está abierta.")
+        msg.AppendLine("  2) Copiar los paquetes desde \\sfs01sc0085\InstWks\Software\Calculadora\ a C:\Temp\ del equipo.")
+        msg.AppendLine("  3) Reinstalar la aplicación (Add-AppxPackage).")
+        msg.AppendLine()
+        msg.AppendLine("¿Desea continuar?")
+
+        ' -------- Confirmación (No por defecto para evitar disparos accidentales) ----------
+        Dim confirma As DialogResult = MessageBox.Show(
+        msg.ToString(),
+        "Confirmar reparación de Calculadora",
+        MessageBoxButtons.YesNo,
+        MessageBoxIcon.Question,
+        MessageBoxDefaultButton.Button2
+    )
+
+        If confirma <> DialogResult.Yes Then
+            AppendInfo("Operación cancelada por el usuario (Calculadora).")
+            Return
+        End If
+
+        ' --- Lógica existente ---
+        If _taskRunning OrElse _repairRunning Then
+            AppendInfo("⚠ Ya hay una tarea en curso. Esperá a que finalice.")
+            Return
+        End If
+        If String.IsNullOrWhiteSpace(host) Then
+            AppendInfo("⚠ Ingresá un puesto válido en TextBoxPuesto.")
+            If TextBoxPuesto IsNot Nothing Then TextBoxPuesto.Focus()
+            Return
+        End If
+
+        If Not Await HostDisponibleAsync(host) Then
+            AppendInfo($"⚠ El host {host} NO responde ping. Acción bloqueada.")
+            UpdateIconsForHostAsync()
+            Return
+        End If
+
+        Try
+            _taskRunning = True
+            UpdateIconsForHostAsync() ' deshabilita todos los Pic%
+            ClearInfo()
+            SetProgressMarquee(False)
+            SetProgress(0)
+            AppendInfo($"Iniciando reinstalación de Calculadora en {host}…")
+
+            ' Versión centralizada (copia desde \\sfs01sc0085\… y ejecuta en remoto)
+            Await RepararCalculadoraRemotoAsync(host)
+
+        Finally
+            _taskRunning = False
+            UpdateIconsForHostAsync()
+        End Try
+    End Sub
+
+    '##############################
     ' CERRAR CALCULADORA (REMOTO)
     '##############################
     Private Sub CerrarCalculadoraRemoto(scope As ManagementScope)
@@ -2234,15 +2480,27 @@ Public Class PUSH
     ' - Ejecuta Invoke-Command con Add-AppxPackage (3 veces)
     ' - Espera a que termine el PowerShell local (cierra cuando el remoto termina)
     '#############################################################################################
-    Private Async Function RepararCalculadoraRemotoAsync(equipo As String,
-                                                     rutaXaml24 As String,
-                                                     rutaVCLibs140 As String,
-                                                     rutaCalcBundle As String) As Task
+    Private Async Function RepararCalculadoraRemotoAsync(equipo As String) As Task
         Await Task.Run(Sub()
                            AppendInfo($"=== Reparación Calculadora en {equipo} ===")
                            Try
-                               ' [0] Conexión WMI para cierre de app (y reuso futuro)
-                               AppendInfo("Conectando WMI (root\cimv2)…")
+                               ' --- ORIGEN CENTRALIZADO ---
+                               Dim repo As String = "\\sfs01sc0085\InstWks\Software\Calculadora\"
+
+                               AppendInfo("Buscando paquetes en servidor central...")
+                               ' Detecta automáticamente los archivos según extensión
+                               Dim rutaXaml24 = Directory.GetFiles(repo, "Microsoft.UI.Xaml*.Appx").FirstOrDefault()
+                               Dim rutaVCLibs140 = Directory.GetFiles(repo, "Microsoft.VCLibs*.Appx").FirstOrDefault()
+                               Dim rutaCalcBundle = Directory.GetFiles(repo, "Microsoft.WindowsCalculator*.AppxBundle").FirstOrDefault()
+                               ' --- Validaciones ---
+                               If rutaXaml24 Is Nothing Then Throw New FileNotFoundException("No se encontró Xaml 2.4 en repositorio.")
+                               If rutaVCLibs140 Is Nothing Then Throw New FileNotFoundException("No se encontró VCLibs 140 en repositorio.")
+                               If rutaCalcBundle Is Nothing Then Throw New FileNotFoundException("No se encontró el paquete Calculadora en repositorio.")
+
+                               AppendInfo("✓ Paquetes encontrados correctamente en el servidor.")
+
+                               ' --- Conexión WMI ---
+                               AppendInfo("Conectando WMI...")
                                Dim scope = WmiConnect(equipo, "root\cimv2")
                                If scope Is Nothing OrElse Not scope.IsConnected Then
                                    AppendInfo("✗ WMI no disponible. Detenido.")
@@ -2251,67 +2509,62 @@ Public Class PUSH
                                AppendInfo("✓ WMI OK.")
                                SetProgress(10)
 
-                               ' [1] Cerrar Calculadora remota si está abierta
+                               ' --- Cerrar calculadora remota ---
                                CerrarCalculadoraRemoto(scope)
                                SetProgress(25)
 
-                               ' [2] Validar orígenes
-                               AppendInfo("Validando paquetes locales…")
-                               If Not File.Exists(rutaXaml24) Then AppendInfo("✗ Falta Xaml 2.4") : Throw New FileNotFoundException(rutaXaml24)
-                               If Not File.Exists(rutaVCLibs140) Then AppendInfo("✗ Falta VCLibs 140") : Throw New FileNotFoundException(rutaVCLibs140)
-                               If Not File.Exists(rutaCalcBundle) Then AppendInfo("✗ Falta Calculadora AppxBundle") : Throw New FileNotFoundException(rutaCalcBundle)
-                               AppendInfo("✓ Paquetes OK.")
-                               SetProgress(35)
-
-                               ' [3] Copiar a remoto
+                               ' --- Copiar archivos al remoto ---
                                Dim uncTemp = "\\" & equipo & "\C$\Temp\"
-                               AppendInfo("Asegurando carpeta remota C:\Temp …")
+                               AppendInfo("Asegurando carpeta remota: C:\Temp...")
+
                                If Not Directory.Exists(uncTemp) Then
-                                   Try
-                                       Directory.CreateDirectory(uncTemp)
-                                       AppendInfo("  ✓ C:\Temp creado.")
-                                   Catch
-                                       If Not Directory.Exists(uncTemp) Then Throw
-                                   End Try
+                                   Directory.CreateDirectory(uncTemp)
+                                   AppendInfo("  ✓ C:\Temp creado.")
                                Else
                                    AppendInfo("  ✓ C:\Temp ya existe.")
                                End If
 
-                               AppendInfo("Copiando paquetes al remoto …")
-                               File.Copy(rutaXaml24, Path.Combine(uncTemp, Path.GetFileName(rutaXaml24)), True)
-                               AppendInfo("  · Xaml 2.4 copiado.")
-                               File.Copy(rutaVCLibs140, Path.Combine(uncTemp, Path.GetFileName(rutaVCLibs140)), True)
-                               AppendInfo("  · VCLibs 140 copiado.")
-                               File.Copy(rutaCalcBundle, Path.Combine(uncTemp, Path.GetFileName(rutaCalcBundle)), True)
+                               AppendInfo("Copiando archivos desde repositorio al equipo remoto...")
+
+                               Dim xamlRemote = Path.Combine(uncTemp, Path.GetFileName(rutaXaml24))
+                               Dim vclRemote = Path.Combine(uncTemp, Path.GetFileName(rutaVCLibs140))
+                               Dim calcRemote = Path.Combine(uncTemp, Path.GetFileName(rutaCalcBundle))
+
+                               File.Copy(rutaXaml24, xamlRemote, True)
+                               AppendInfo("  · XAML copiado.")
+
+                               File.Copy(rutaVCLibs140, vclRemote, True)
+                               AppendInfo("  · VCLibs copiado.")
+
+                               File.Copy(rutaCalcBundle, calcRemote, True)
                                AppendInfo("  · Calculadora bundle copiado.")
+
                                SetProgress(55)
 
-                               ' [4] Script PS temporal local
-                               AppendInfo("Preparando script PowerShell remoto …")
+                               ' --- Script PowerShell temporal ---
+                               AppendInfo("Generando script PowerShell temporal...")
                                Dim psScript As String =
-                "param($xaml,$vclibs,$bundle)
-                $ErrorActionPreference = 'Stop'
-                try {
-                $app = Get-AppxPackage -Name Microsoft.WindowsCalculator -AllUsers -ErrorAction SilentlyContinue
-                if ($app) { Remove-AppxPackage -Package $app.PackageFullName -AllUsers }
-                    } catch { }
+"param($xaml,$vclibs,$bundle)
+$ErrorActionPreference = 'Stop'
+try {
+    $app = Get-AppxPackage -Name Microsoft.WindowsCalculator -AllUsers -ErrorAction SilentlyContinue
+    if ($app) { Remove-AppxPackage -Package $app.PackageFullName -AllUsers }
+} catch { }
 
-                Add-AppxPackage -Path $xaml
-                Add-AppxPackage -Path $vclibs
-                Add-AppxPackage -Path $bundle
+Add-AppxPackage -Path $xaml
+Add-AppxPackage -Path $vclibs
+Add-AppxPackage -Path $bundle
 
-                    Write-Host 'OK'"
+Write-Host 'OK'"
 
                                Dim psFile As String = Path.Combine(Path.GetTempPath(), "repara_calc.ps1")
                                File.WriteAllText(psFile, psScript, Encoding.UTF8)
-                               AppendInfo("  ✓ Script temporal: " & psFile)
+                               AppendInfo("  ✓ Script generado.")
+
                                SetProgress(65)
 
-                               ' [5] Ejecutar Invoke-Command al remoto
-                               AppendInfo("Invocando Add-AppxPackage en el equipo remoto …")
-                               Dim xamlRemote = "C:\Temp\" & Path.GetFileName(rutaXaml24)
-                               Dim vclRemote = "C:\Temp\" & Path.GetFileName(rutaVCLibs140)
-                               Dim calRemote = "C:\Temp\" & Path.GetFileName(rutaCalcBundle)
+                               ' --- Ejecutar PowerShell remoto ---
+                               AppendInfo("Ejecutando reparación remota...")
 
                                Dim psi As New ProcessStartInfo("powershell.exe") With {
                 .UseShellExecute = False,
@@ -2319,15 +2572,12 @@ Public Class PUSH
                 .RedirectStandardError = True,
                 .CreateNoWindow = True
             }
+
                                psi.Arguments =
-                "-NoProfile -ExecutionPolicy Bypass " &
-                "-Command ""Invoke-Command -ComputerName '" & equipo.Replace("'", "''") &
-                "' -FilePath '" & psFile.Replace("'", "''") &
-                "' -ArgumentList '" & xamlRemote.Replace("'", "''") & "','" &
-                                   vclRemote.Replace("'", "''") & "','" &
-                                   calRemote.Replace("'", "''") & "'"""
+$"-NoProfile -ExecutionPolicy Bypass -Command ""Invoke-Command -ComputerName '{equipo}' -FilePath '{psFile}' -ArgumentList '{xamlRemote}','{vclRemote}','{calcRemote}'"""
 
                                SetProgressMarquee(True)
+
                                Using p = Process.Start(psi)
                                    Dim outS = p.StandardOutput.ReadToEnd()
                                    Dim errS = p.StandardError.ReadToEnd()
@@ -2343,7 +2593,7 @@ Public Class PUSH
                                        AppendInfo("✓ Calculadora reinstalada correctamente.")
                                    Else
                                        SetProgress(0)
-                                       AppendInfo("✗ Error de reinstalación. ExitCode=" & p.ExitCode)
+                                       AppendInfo("✗ Error en reinstalación. ExitCode=" & p.ExitCode)
                                    End If
                                End Using
 
@@ -2352,52 +2602,13 @@ Public Class PUSH
                            Catch ex As Exception
                                SetProgressMarquee(False)
                                SetProgress(0)
-                               AppendInfo("✗ Error Calculadora: " & ex.Message)
+                               AppendInfo("✗ Error: " & ex.Message)
                            End Try
+
                        End Sub)
     End Function
 
-    Private Async Sub PicCalc_Click(sender As Object, e As EventArgs) Handles PicCalc.Click
-        If _taskRunning OrElse _repairRunning Then
-            AppendInfo("⚠ Ya hay una tarea en curso. Esperá a que finalice.")
-            Return
-        End If
 
-        Dim host As String = If(TextBoxPuesto IsNot Nothing, TextBoxPuesto.Text.Trim(), "")
-        If String.IsNullOrWhiteSpace(host) Then
-            AppendInfo("⚠ Ingresá un puesto válido en TextBoxPuesto.")
-            If TextBoxPuesto IsNot Nothing Then TextBoxPuesto.Focus()
-            Return
-        End If
-
-        If Not Await HostDisponibleAsync(host) Then
-            AppendInfo($"⚠ El host {host} NO responde ping. Acción bloqueada.")
-            UpdateIconsForHostAsync()
-            Return
-        End If
-
-        ' Rutas locales (junto al EXE) — ajustá si las tenés en otra carpeta
-        Dim basePath = Application.StartupPath
-        Dim xaml = Path.Combine(basePath, "Microsoft.UI.Xaml.2.4_2.42007.9001.0_x64__8wekyb3d8bbwe.Appx")
-        Dim vcl = Path.Combine(basePath, "Microsoft.VCLibs.140.00_14.0.33519.0_x64__8wekyb3d8bbwe.Appx")
-        Dim calcB = Path.Combine(basePath, "Microsoft.WindowsCalculator_2020.2103.8.0_neutral_~_8wekyb3d8bbwe.AppxBundle")
-
-        Try
-            _taskRunning = True
-            UpdateIconsForHostAsync() ' deshabilita todos los Pic%
-
-            ClearInfo()
-            SetProgressMarquee(False)
-            SetProgress(0)
-            AppendInfo($"Iniciando reinstalación de Calculadora en {host}…")
-
-            Await RepararCalculadoraRemotoAsync(host, xaml, vcl, calcB)
-
-        Finally
-            _taskRunning = False
-            UpdateIconsForHostAsync()
-        End Try
-    End Sub
 
 
 
@@ -2547,8 +2758,6 @@ Public Class PUSH
             Application.Exit()
         End If
     End Sub
-
-
 
 
 End Class
