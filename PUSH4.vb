@@ -2574,121 +2574,126 @@ End Function
     '#############################################################################################
     Private Async Function RepararCalculadoraRemotoAsync(equipo As String) As Task
         Await Task.Run(Sub()
-
-                           Dim inicio As DateTime = DateTime.Now
+                           Dim t0 As DateTime = DateTime.Now
                            SetEstadoProgreso("Calculadora: en curso")
                            AppendInfo("=== Reinstalación de Calculadora en " & equipo & " ===")
-
                            Try
-                               ' =====================================================
-                               ' 1) Localizar paquetes en repositorio
-                               ' =====================================================
-                               Dim repoBase As String = "\\sfs01sc0085\InstWks\Software\"
-                               Dim xaml As String = Nothing
-                               Dim vcl As String = Nothing
-                               Dim bundle As String = Nothing
-                               Dim origen As String = Nothing
-
-                               For Each d In Directory.GetDirectories(repoBase, "*Calculadora*", SearchOption.AllDirectories)
-                                   Dim a = Directory.GetFiles(d, "Microsoft.UI.Xaml*.Appx", SearchOption.AllDirectories).FirstOrDefault()
-                                   Dim b = Directory.GetFiles(d, "Microsoft.VCLibs*.Appx", SearchOption.AllDirectories).FirstOrDefault()
-                                   Dim c = Directory.GetFiles(d, "Microsoft.WindowsCalculator*.AppxBundle", SearchOption.AllDirectories).FirstOrDefault()
-
-                                   If a IsNot Nothing AndAlso b IsNot Nothing AndAlso c IsNot Nothing Then
-                                       xaml = a : vcl = b : bundle = c : origen = d
-                                       Exit For
-                                   End If
-                               Next
-
-                               If origen Is Nothing Then
-                                   Throw New FileNotFoundException("No se encontraron paquetes de Calculadora en el repositorio.")
+                               ' Repositorio central
+                               Dim repo As String = "\\sfs01sc0085\InstWks\Software\Calculadora\"
+                               Dim rutaXaml24 = Directory.GetFiles(repo, "Microsoft.UI.Xaml*.Appx").FirstOrDefault()
+                               Dim rutaVCLibs140 = Directory.GetFiles(repo, "Microsoft.VCLibs*.Appx").FirstOrDefault()
+                               Dim rutaCalcBundle = Directory.GetFiles(repo, "Microsoft.WindowsCalculator*.AppxBundle").FirstOrDefault()
+                               If rutaXaml24 Is Nothing OrElse rutaVCLibs140 Is Nothing OrElse rutaCalcBundle Is Nothing Then
+                                   Throw New FileNotFoundException("Faltan paquetes en el repositorio central.")
                                End If
 
-                               AppendInfo("OK: Paquetes localizados en " & origen)
+                               ' WMI
+                               Dim scope = WmiConnect(equipo, "root\cimv2")
+                               If scope Is Nothing OrElse Not scope.IsConnected Then
+                                   Throw New ApplicationException("WMI no disponible en el equipo remoto.")
+                               End If
 
-                               ' =====================================================
-                               ' 2) Copiar paquetes al puesto remoto (C:\Temp)
-                               ' =====================================================
-                               Dim uncTemp As String = "\\" & equipo & "\C$\Temp\"
+                               ' Cierre silencioso (WMI; PS reforzará)
+                               CerrarCalculadoraRemoto(scope)
+
+                               ' Copia a remoto
+                               Dim uncTemp = "\\" & equipo & "\C$\Temp\"
                                If Not Directory.Exists(uncTemp) Then Directory.CreateDirectory(uncTemp)
+                               Dim xamlRemote = Path.Combine(uncTemp, Path.GetFileName(rutaXaml24))
+                               Dim vclRemote = Path.Combine(uncTemp, Path.GetFileName(rutaVCLibs140))
+                               Dim calcRemote = Path.Combine(uncTemp, Path.GetFileName(rutaCalcBundle))
+                               File.Copy(rutaXaml24, xamlRemote, True)
+                               File.Copy(rutaVCLibs140, vclRemote, True)
+                               File.Copy(rutaCalcBundle, calcRemote, True)
 
-                               File.Copy(xaml, Path.Combine(uncTemp, Path.GetFileName(xaml)), True)
-                               File.Copy(vcl, Path.Combine(uncTemp, Path.GetFileName(vcl)), True)
-                               File.Copy(bundle, Path.Combine(uncTemp, Path.GetFileName(bundle)), True)
+                               ' PowerShell temporal (ASCII)
+                               Dim sbPS As New System.Text.StringBuilder()
+                               sbPS.AppendLine("param($xaml,$vclibs,$bundle)")
+                               sbPS.AppendLine("$ErrorActionPreference = 'Stop'")
+                               sbPS.AppendLine("")
 
-                               AppendInfo("OK: Paquetes copiados a C:\Temp del puesto")
+                               ' 1) Cerrar UWP (todas las sesiones)
+                               sbPS.AppendLine("Get-Process -Name Calculator,CalculatorApp,Win32Bridge.Server,RuntimeBroker,ApplicationFrameHost -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue")
+                               sbPS.AppendLine("Start-Sleep -Seconds 2")
+                               sbPS.AppendLine("foreach($n in 'Calculator','CalculatorApp','Win32Bridge.Server','RuntimeBroker','ApplicationFrameHost'){ Start-Process taskkill.exe -ArgumentList ""/F /IM $n.exe"" -WindowStyle Hidden -Wait }")
+                               sbPS.AppendLine("Start-Sleep -Seconds 2")
 
-                               ' =====================================================
-                               ' 3) Crear BAT remoto
-                               ' =====================================================
-                               Dim bat As String =
-                "taskkill /F /IM Calculator.exe" & vbCrLf &
-                "taskkill /F /IM CalculatorApp.exe" & vbCrLf &
-                "taskkill /F /IM RuntimeBroker.exe" & vbCrLf &
-                "taskkill /F /IM ApplicationFrameHost.exe" & vbCrLf &
-                "taskkill /F /IM Win32Bridge.Server.exe" & vbCrLf &
-                "powershell -command ""Get-AppxPackage -AllUsers Microsoft.WindowsCalculator | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue""" & vbCrLf &
-                "powershell Add-AppxPackage C:\Temp\" & Path.GetFileName(xaml) & " -ForceApplicationShutdown" & vbCrLf &
-                "powershell Add-AppxPackage C:\Temp\" & Path.GetFileName(vcl) & " -ForceApplicationShutdown" & vbCrLf &
-                "powershell Add-AppxPackage C:\Temp\" & Path.GetFileName(bundle) & " -ForceUpdateFromAnyVersion -DisableDevelopmentMode" & vbCrLf &
-                "exit /b %ERRORLEVEL%"
+                               ' 2) Quitar Appx (todos los usuarios)
+                               sbPS.AppendLine("$apps = Get-AppxPackage -AllUsers -Name Microsoft.WindowsCalculator -ErrorAction SilentlyContinue")
+                               sbPS.AppendLine("foreach($a in $apps){ try{ Remove-AppxPackage -AllUsers -Package $a.PackageFullName -ErrorAction SilentlyContinue } catch{} }")
 
-                               Dim localBat As String = Path.Combine(Path.GetTempPath(), "recalc_local.bat")
-                               File.WriteAllText(localBat, bat, Encoding.ASCII)
-                               File.Copy(localBat, Path.Combine(uncTemp, "recalc.bat"), True)
+                               ' 3) Quitar provisionado (si existe) - ignora error si sin elevación
+                               sbPS.AppendLine("try {")
+                               sbPS.AppendLine("  $prov = Get-AppxProvisionedPackage -Online | Where-Object { $_.DisplayName -eq 'Microsoft.WindowsCalculator' }")
+                               sbPS.AppendLine("  foreach($p in $prov){ try{ Remove-AppxProvisionedPackage -Online -PackageName $p.PackageName -ErrorAction SilentlyContinue } catch{} }")
+                               sbPS.AppendLine("} catch {}")
 
-                               AppendInfo("OK: BAT de reparación creado")
+                               ' 4) Instalar SIEMPRE (forzar)
+                               sbPS.AppendLine("Add-AppxPackage -Path $xaml   -ForceApplicationShutdown")
+                               sbPS.AppendLine("Add-AppxPackage -Path $vclibs -ForceApplicationShutdown")
+                               sbPS.AppendLine("Add-AppxPackage -Path $bundle -ForceApplicationShutdown -ForceUpdateFromAnyVersion -DisableDevelopmentMode")
 
-                               ' =====================================================
-                               ' 4) Preparar PsExec en C:\Temp del operador
-                               ' =====================================================
-                               Dim repoPsExec As String = "\\sfs01sc0085\InstWks\Software\PsExec\PsExec.exe"
-                               Dim opDir As String = "C:\Temp\PUSH"
-                               If Not Directory.Exists(opDir) Then Directory.CreateDirectory(opDir)
+                               sbPS.AppendLine("Write-Host 'OK|Reinstalada'")
 
-                               Dim psExecLocal As String = Path.Combine(opDir, "PsExec.exe")
-                               If Not File.Exists(psExecLocal) Then
-                                   File.Copy(repoPsExec, psExecLocal, True)
-                                   AppendInfo("OK: PsExec copiado a C:\Temp del operador")
-                               End If
+                               Dim psScript As String = sbPS.ToString()
+                               Dim psFile As String = Path.Combine(Path.GetTempPath(), "repara_calc.ps1")
+                               File.WriteAllText(psFile, psScript, System.Text.Encoding.UTF8)
 
-                               ' =====================================================
-                               ' 5) Ejecutar BAT remoto con PsExec
-                               ' =====================================================
-                               Dim psi As New ProcessStartInfo(psExecLocal)
-                               psi.Arguments = "\\" & equipo & " -accepteula C:\Temp\recalc.bat"
-                               psi.UseShellExecute = False
-                               psi.RedirectStandardOutput = True
-                               psi.RedirectStandardError = True
-                               psi.CreateNoWindow = True
+                               ' Ejecutar PS remoto (oculto)
+                               Dim psi As New ProcessStartInfo("powershell.exe") With {
+                .UseShellExecute = False,
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .CreateNoWindow = True
+            }
+                               psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -Command ""Invoke-Command -ComputerName '" & equipo & "' -FilePath '" & psFile & "' -ArgumentList '" & xamlRemote & "','" & vclRemote & "','" & calcRemote & "'"""
 
                                SetProgressMarquee(True)
 
                                Using p = Process.Start(psi)
                                    Dim nextLog As DateTime = DateTime.Now.AddSeconds(30)
+                                   Dim timeoutMin As Integer = 60   ' tope razonable (ajustable)
 
                                    Do While Not p.HasExited
                                        Threading.Thread.Sleep(1000)
+
+                                       ' Progreso cada 30 s (leyenda + log)
                                        If DateTime.Now >= nextLog Then
-                                           Dim el As TimeSpan = DateTime.Now - inicio
-                                           AppendInfo(" · Calculadora en curso… (" & el.Minutes & "m " & el.Seconds.ToString("00") & "s)")
-                                           SetEstadoProgreso("Calculadora: en curso (" & el.Minutes & ":" & el.Seconds.ToString("00") & ")")
+                                           Dim elapsed = DateTime.Now - t0
+                                           AppendInfo("  · Calculadora en curso… (tiempo transcurrido " & elapsed.Minutes & " min " & elapsed.Seconds.ToString("00") & " s)")
+                                           SetEstadoProgreso("Calculadora: en curso (" & elapsed.Minutes & ":" & elapsed.Seconds.ToString("00") & ")")
                                            nextLog = DateTime.Now.AddSeconds(30)
+                                       End If
+
+                                       ' Timeout duro (evitar quedar colgado para siempre)
+                                       If (DateTime.Now - t0).TotalMinutes >= timeoutMin Then
+                                           Try : p.Kill() : Catch : End Try
+                                           Exit Do
                                        End If
                                    Loop
 
+                                   Dim outS = p.StandardOutput.ReadToEnd()
+                                   Dim errS = p.StandardError.ReadToEnd()
                                    SetProgressMarquee(False)
 
-                                   Dim dur As TimeSpan = DateTime.Now - inicio
+                                   Dim total = DateTime.Now - t0
+                                   Dim fin As String = total.Minutes & ":" & total.Seconds.ToString("00")
 
-                                   If p.ExitCode = 0 Then
+                                   If (Not p.HasExited) Then
+                                       ' Matamos por timeout real (no debería ocurrir en pocos minutos)
+                                       SetProgress(0)
+                                       SetEstadoProgreso("Error")
+                                       AppendInfo("Error Calculadora (" & fin & "): timeout de ejecución de PowerShell.")
+                                   ElseIf p.ExitCode = 0 AndAlso outS.Contains("OK") Then
                                        SetProgress(100)
                                        SetEstadoProgreso("Finalizado")
-                                       AppendInfo("OK Calculadora (" & dur.Minutes & ":" & dur.Seconds.ToString("00") & ")")
+                                       AppendInfo("OK Calculadora (" & fin & ")")
                                    Else
                                        SetProgress(0)
                                        SetEstadoProgreso("Error")
-                                       AppendInfo("Error Calculadora. Código: " & p.ExitCode)
+                                       Dim motivo As String = If(errS.Length > 0, errS.Trim(), "Fallo en reinstalacion (Invoke-Command/Add-AppxPackage)")
+                                       If motivo.Length > 200 Then motivo = motivo.Substring(0, 200) & "..."
+                                       AppendInfo("Error Calculadora (" & fin & "): " & motivo)
                                    End If
                                End Using
 
@@ -2698,10 +2703,8 @@ End Function
                                SetEstadoProgreso("Error")
                                AppendInfo("Error Calculadora: " & ex.Message)
                            End Try
-
                        End Sub)
     End Function
-
 
 
 
