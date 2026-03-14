@@ -22,6 +22,7 @@ Public Class PUSH
     Private _baseImages As New Dictionary(Of PictureBox, Image)   ' para no spamear pings si no cambió el host
     Private _lastPingHost As String = Nothing
     Private _lastPingResult As Boolean? = Nothing
+    Private Const MODO_SILENCIOSO As Boolean = False
 
     ' === Infra de progreso (UI) ===
     Private _timerIdle As System.Windows.Forms.Timer
@@ -2656,11 +2657,20 @@ End Function
                                ' 5) Ejecutar BAT remoto con PsExec
                                ' =====================================================
                                Dim psi As New ProcessStartInfo(psExecLocal)
-                               psi.Arguments = "\\" & equipo & " -accepteula C:\Temp\recalc.bat"
+
+                               If MODO_SILENCIOSO Then
+                                   ' Ejecuta el BAT a través de cmd.exe oculto
+                                   psi.Arguments = "\\" & equipo & " -accepteula cmd.exe /c C:\Temp\recalc.bat"
+                               Else
+                                   ' Modo normal (como ahora)
+                                   psi.Arguments = "\\" & equipo & " -accepteula C:\Temp\recalc.bat"
+                               End If
+
                                psi.UseShellExecute = False
                                psi.RedirectStandardOutput = True
                                psi.RedirectStandardError = True
                                psi.CreateNoWindow = True
+
 
                                SetProgressMarquee(True)
 
